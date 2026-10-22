@@ -109,16 +109,28 @@ BIND=0.0.0.0:9000 cargo run --release --manifest-path server/Cargo.toml
 
 ## Android
 
-详细步骤（含 SDK / NDK 安装、串口调试）见 **[docs/ANDROID.md](docs/ANDROID.md)**。速览：
+完整步骤（SDK / NDK / rustup 怎么装、踩过的坑、常见报错）见 **[docs/ANDROID.md](docs/ANDROID.md)**。
+
+**本机已经装好了一套**，都在仓库目录里（已 gitignore），两条命令就能出包：
 
 ```bash
-npm run android:init     # 首次：生成 src-tauri/gen/android
-npm run android:dev      # 真机 / 模拟器热重载
-npm run android:build    # 打包 APK / AAB
+source scripts/android-env.sh   # 把 SDK / NDK / rustup / gradle 塞进当前 shell
+./scripts/build-apk.sh          # 默认 debug + arm64；传 release 打正式包
 ```
 
-需要 `ANDROID_HOME`、`NDK_HOME`（NDK 26+）、JDK 17+，以及
-`rustup target add aarch64-linux-android armv7-linux-androideabi`。
+项目里装的版本：
+
+| 组件 | 版本 |
+| --- | --- |
+| Android SDK Platform | android-37.0（Tauri 模板 `compileSdk = 37`） |
+| Build-Tools | 37.0.0 |
+| NDK | 27.3.13750724（r27d） |
+| Rust | 1.99.1 + `aarch64/armv7/i686/x86_64-linux-android` 标准库 |
+| Gradle | 9.6.1（wrapper 走腾讯云镜像） |
+| JDK | 21 |
+
+产物在 `src-tauri/gen/android/app/build/outputs/apk/<abi>/<mode>/app-<abi>-<mode>.apk`，
+其实测已打出 184 MB 的 debug 包（arm64）。
 
 手机上本地音频代理同样跑在 `127.0.0.1`，不需要额外配置；界面在窄屏下自动切到底部标签栏。
 
