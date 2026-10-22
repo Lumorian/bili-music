@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { guardSeek, getAudio } from '../lib/audio';
 import { fmtTime } from '../lib/format';
 import type { Track } from '../lib/types';
@@ -36,6 +37,14 @@ export function Player({ onOpenQueue, onOpenNowPlaying }: Props) {
   const joined = useTogether((s) => s.joined && s.connected);
   const room = useTogether((s) => s.room);
   const isHost = useTogether((s) => s.isHost());
+
+  // 一起听时进度由「服务器状态 + 时钟偏移」推算，需要一个心跳来触发重渲染
+  const [, setBeat] = useState(0);
+  useEffect(() => {
+    if (!joined) return;
+    const id = window.setInterval(() => setBeat((n) => n + 1), 500);
+    return () => window.clearInterval(id);
+  }, [joined]);
 
   // 一起听时进度条显示"服务器时间对应的位置"
   const syncDuration = joined && room ? room.queue[room.state.index]?.duration_ms ?? 0 : 0;

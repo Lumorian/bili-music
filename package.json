@@ -11,9 +11,13 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:build:android": "tauri android build",
-    "sync:dev": "cargo run --manifest-path server/Cargo.toml",
-    "sync:build": "cargo build --release --manifest-path server/Cargo.toml"
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build",
+    "sync:server": "cargo run --manifest-path server/Cargo.toml",
+    "sync:server:release": "cargo run --release --manifest-path server/Cargo.toml",
+    "typecheck": "tsc --noEmit",
+    "test": "cargo test --workspace"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

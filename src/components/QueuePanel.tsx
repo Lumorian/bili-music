@@ -1,7 +1,9 @@
 import { fmtTime } from '../lib/format';
+import { api } from '../lib/api';
 import { usePlayer } from '../store/player';
 import { useTogether } from '../store/together';
 import { IconTrash, IconX } from './Icons';
+import { toast } from './Toast';
 
 interface Props {
   open: boolean;
@@ -55,7 +57,13 @@ export function QueuePanel({ open, onClose }: Props) {
               <div
                 key={`${t.source}-${t.id}-${i}`}
                 className={`track-row ${i === current ? 'playing' : ''}`}
-                onDoubleClick={() => playAt(i)}
+                onDoubleClick={() => {
+                  if (joined) {
+                    void api.togetherPlayIndex(i, 0).catch((e) => toast(String(e), 'error'));
+                    return;
+                  }
+                  playAt(i);
+                }}
               >
                 <div className="track-index">{i === current ? '▶' : i + 1}</div>
                 <img className="track-cover" src={t.cover} alt="" loading="lazy" />
@@ -65,7 +73,17 @@ export function QueuePanel({ open, onClose }: Props) {
                 </div>
                 <div className="track-dur">{fmtTime(t.duration_ms)}</div>
                 <div className="track-actions" style={{ opacity: 1 }}>
-                  <button className="icon-btn" onClick={() => removeAt(i)} title="移除" disabled={joined}>
+                  <button
+                    className="icon-btn"
+                    title="移除"
+                    onClick={() => {
+                      if (joined) {
+                        void api.togetherRemoveTrack(i).catch((e) => toast(String(e), 'error'));
+                        return;
+                      }
+                      removeAt(i);
+                    }}
+                  >
                     <IconX size={15} />
                   </button>
                 </div>

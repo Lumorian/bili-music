@@ -5,6 +5,8 @@
 
 支持 **GNU/Linux · Windows · Android**，桌面端与手机端共用一套 Rust 后端 + React 前端。
 
+![BiliMusic 主界面](docs/screenshot-home.png)
+
 ---
 
 ## 它是什么
@@ -77,7 +79,7 @@ npm run tauri:build      # 打生产包（deb/rpm/AppImage / msi / exe）
 房间服务器是独立的小二进制，可以在自己电脑、NAS 或云主机上跑：
 
 ```bash
-cargo run --release --manifest-path server/Cargo.toml
+npm run sync:server:release
 # 或指定端口/地址
 BIND=0.0.0.0:9000 cargo run --release --manifest-path server/Cargo.toml
 ```
@@ -107,8 +109,9 @@ BIND=0.0.0.0:9000 cargo run --release --manifest-path server/Cargo.toml
 ## Android
 
 ```bash
-npm run tauri:android init     # 首次：生成 src-tauri/gen/android（需要 Android SDK + NDK）
-npm run tauri:build:android    # 打包 APK / AAB
+npm run android:init     # 首次：生成 src-tauri/gen/android（需要 Android SDK + NDK）
+npm run android:dev      # 真机 / 模拟器上热重载
+npm run android:build    # 打包 APK / AAB
 ```
 
 - 需要 `ANDROID_HOME`、`NDK_HOME`（NDK 26+），以及 `rustup target add aarch64-linux-android`。
