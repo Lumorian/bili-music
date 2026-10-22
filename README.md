@@ -76,6 +76,38 @@ npm run sync:server      # 顺便起一个一起听房间服务器
 > 只想调 UI 的话，直接 `npm run dev` 在浏览器里打开即可 —— 没有 Tauri 运行时
 > 会自动走内置的假数据后端，不用联网。
 
+## 打包发布
+
+一条命令出全部产物（Linux deb/rpm/AppImage + Android APK + 房间服务器）：
+
+```bash
+./scripts/build-all.sh
+```
+
+产物统一落在 `dist-packages/`，并生成 `SHA256SUMS.txt`：
+
+| 文件 | 用途 |
+| --- | --- |
+| `BiliMusic_0.1.0_amd64.deb` | Debian / Ubuntu（3.4 MB） |
+| `BiliMusic-0.1.0-1.x86_64.rpm` | Fedora / openSUSE（3.4 MB） |
+| `BiliMusic_0.1.0_amd64.AppImage` | 免安装，自带依赖（103 MB） |
+| `bili-music-0.1.0-linux-x86_64` | 裸二进制（7.4 MB） |
+| `BiliMusic_0.1.0_arm64.apk` | Android arm64（11 MB，release 已签名） |
+| `bili-music-sync-server` | 自建一起听服务器（2 MB） |
+
+单独打包：
+
+```bash
+npx tauri build --bundles deb              # 只出 deb
+npx tauri build --bundles appimage         # 只出 AppImage
+npx tauri android build --apk --target aarch64   # 只出 APK
+```
+
+> release APK 的签名密钥放在 `.android-keys/`（已 gitignore）。
+> 首次生成：`keytool -genkeypair -keystore .android-keys/bilimusic.jks -alias bilimusic \
+>   -keyalg RSA -keysize 2048 -validity 10000 -storepass bilimusic -keypass bilimusic \
+>   -dname "CN=BiliMusic"`，然后靠环境变量 `BILIMUSIC_SIGNING_*` 传给 Gradle。
+
 ## 一起听
 
 ### 默认：云房间（不用自建任何东西）

@@ -16,6 +16,21 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 37
+
+    signingConfigs {
+        create("release") {
+            // 密钥路径与口令都从环境变量读，keystore 本身不进仓库。
+            // 注意：gradle.properties 里的 ${VAR} 只是 project property 占位，
+            // 不会展开成环境变量，所以这里必须用 System.getenv。
+            val storeFilePath = System.getenv("BILIMUSIC_SIGNING_STORE_FILE")
+            if (!storeFilePath.isNullOrBlank() && file(storeFilePath).exists()) {
+                storeFile = file(storeFilePath)
+                storePassword = System.getenv("BILIMUSIC_SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("BILIMUSIC_SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("BILIMUSIC_SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
     namespace = "dev.lumorian.bilimusic"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -39,6 +54,12 @@ android {
             }
         }
         getByName("release") {
+            // 有密钥就签名，没有就退回 debug 签名（方便本地试用）
+            signingConfig = if (signingConfigs.getByName("release").storeFile != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             optimization {
                enable = true
             }

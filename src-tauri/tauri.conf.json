@@ -32,6 +32,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Music",
+    "shortDescription": "只听歌的 B 站客户端",
+    "longDescription": "把 B 站视频画面整个剥掉、只保留音轨的音乐播放器，并内置不需要服务器的「一起听」房间。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
