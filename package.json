@@ -1,0 +1,34 @@
+{
+  "name": "bili-music",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Bilibili 听视频 + 网易云一起听 的跨平台音乐客户端",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:android": "tauri android build",
+    "sync:dev": "cargo run --manifest-path server/Cargo.toml",
+    "sync:build": "cargo build --release --manifest-path server/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@types/qrcode": "^1.5.6",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^7.0.0"
+  }
+}

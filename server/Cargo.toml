@@ -1,0 +1,15 @@
+[package]
+name = "bili-music-sync-server"
+version = "0.1.0"
+edition = "2021"
+description = "一起听 房间服务器（可自建）"
+
+[[bin]]
+name = "bili-music-sync-server"
+path = "src/main.rs"
+
+[dependencies]
+bili-music-sync = { path = "../sync-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+env_logger = "0.11"
+log = "0.4"

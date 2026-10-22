@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+.npm-cache/
+.cargo-home/
+
+# build output
+dist/
+target/
+src-tauri/target/
+server/target/
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/build/
+src-tauri/gen/android/.idea/
+src-tauri/gen/android/local.properties
+src-tauri/gen/schemas/
+
+# 开发期临时目录
+.tmptest/
+
+# logs & env
+*.log
+.env
+.env.local
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
