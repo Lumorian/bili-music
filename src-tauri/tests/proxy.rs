@@ -4,7 +4,7 @@ use bili_music_lib::proxy;
 
 #[tokio::test]
 async fn proxy_registers_token_and_serves_health() {
-    let port = proxy::start().await;
+    let port = proxy::start();
     assert!(port > 0, "代理端口应大于 0");
 
     let url = format!("http://127.0.0.1:{port}/health");

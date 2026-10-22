@@ -129,29 +129,46 @@ async fn health() -> &'static str {
     "ok"
 }
 
-/// 启动本地代理（幂等）。桌面端与安卓端都用 127.0.0.1。
-pub async fn start() -> u16 {
+fn build_router(state: ProxyState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/stream/{token}", get(proxy_stream))
+        .with_state(state)
+}
+
+/// 同步启动本地代理（幂等）。
+/// 用 std 的 TcpListener 先绑定拿到端口，再交给 tokio，
+/// 这样在 Tauri 的 setup 里调用时不需要 block_on（避免自己等自己）。
+pub fn start() -> u16 {
     if let Some(s) = STATE.get() {
         return s.port;
     }
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+    let std_listener = match std::net::TcpListener::bind("127.0.0.1:0") {
         Ok(l) => l,
         Err(e) => {
             log::error!("本地音频代理启动失败: {e}");
             return 0;
         }
     };
-    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let port = std_listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    if std_listener.set_nonblocking(true).is_err() {
+        log::error!("无法把音频代理切到非阻塞模式");
+        return 0;
+    }
+
     let state = ProxyState { tokens: Default::default(), port };
     let _ = STATE.set(state.clone());
-
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/stream/{token}", get(proxy_stream))
-        .with_state(state);
+    let app = build_router(state);
 
     log::info!("本地音频代理已启动: 127.0.0.1:{port}");
     tauri::async_runtime::spawn(async move {
+        let listener = match tokio::net::TcpListener::from_std(std_listener) {
+            Ok(l) => l,
+            Err(e) => {
+                log::error!("音频代理接管监听失败: {e}");
+                return;
+            }
+        };
         if let Err(e) = axum::serve(listener, app).await {
             log::error!("音频代理退出: {e}");
         }
@@ -159,10 +176,17 @@ pub async fn start() -> u16 {
     port
 }
 
+/// 异步版本的启动入口（测试里用）
+pub async fn start_async() -> u16 {
+    start()
+}
+
+#[allow(dead_code)]
+fn _keep(state: ProxyState) -> ProxyState {
+    state
+}
+
+/// 兜底：尚未启动时启动一次
 pub fn ensure_started() -> u16 {
-    if let Some(s) = STATE.get() {
-        return s.port;
-    }
-    // 用一次性阻塞等待来拿到端口（命令调用都在 async 环境里，这里只是兜底）
-    tauri::async_runtime::block_on(start())
+    start()
 }

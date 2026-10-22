@@ -43,7 +43,7 @@ pub fn run() {
             session::set_data_dir(dir);
 
             // 本地音频代理（WebView 里 <audio> 直接吃这个地址）
-            let port = tauri::async_runtime::block_on(proxy::start());
+            let port = proxy::start();
             if port == 0 {
                 log::error!("音频代理启动失败，播放功能可能不可用");
             }
