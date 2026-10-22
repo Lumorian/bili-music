@@ -50,7 +50,21 @@ export const api = {
     call<void>('save_settings', { togetherServer, nickname }),
   appInfo: () => call<{ version: string; proxyPort: number; platform: string }>('app_info'),
 
-  // ---- 一起听 ----
+  // ---- 一起听：云房间（不用自建服务器） ----
+  togetherCloudHost: (args: { broker?: string; topicPrefix?: string; name: string }) =>
+    call<{ code: string; mode: string }>('together_cloud_host', { args }),
+  togetherCloudJoin: (args: {
+    broker?: string;
+    topicPrefix?: string;
+    code: string;
+    name: string;
+    avatar?: string;
+  }) => call<{ ok: boolean; mode: string }>('together_cloud_join', { args }),
+  togetherCloudProbe: (broker?: string) =>
+    call<{ ok: boolean; broker: string; error?: string }>('together_cloud_probe', { broker }),
+  togetherAmHost: () => call<boolean>('together_am_host'),
+
+  // ---- 一起听：自建服务器 ----
   togetherCreate: (server: string, name: string) =>
     call<{ code: string; room: RoomSnapshot }>('together_create', { server, name }),
   togetherJoin: (args: { server: string; code: string; name: string; avatar: string }) =>

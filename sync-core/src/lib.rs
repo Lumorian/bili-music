@@ -7,7 +7,10 @@
 //! - client  ：加入房间的客户端连接器
 
 pub mod client;
+pub mod cloud;
+pub mod error;
 pub mod model;
+pub mod mqtt;
 pub mod protocol;
 pub mod room;
 pub mod server;

@@ -13,6 +13,7 @@ pub mod model;
 pub mod proxy;
 pub mod session;
 pub mod together;
+pub mod together_cloud;
 pub mod together_cmds;
 
 use std::sync::Arc;
@@ -68,6 +69,10 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::app_info,
+            together_cmds::together_cloud_host,
+            together_cmds::together_cloud_join,
+            together_cmds::together_cloud_probe,
+            together_cmds::together_am_host,
             together_cmds::together_create,
             together_cmds::together_join,
             together_cmds::together_snapshot,

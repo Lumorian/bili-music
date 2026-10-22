@@ -2,23 +2,36 @@ import { create } from 'zustand';
 import { api } from '../lib/api';
 import type { ChatItem, MemberInfo, RoomSnapshot } from '../lib/types';
 
+/** 一起听的两种模式 */
+export type TogetherMode = 'cloud' | 'server';
+
 export interface TogetherState {
   joined: boolean;
   connecting: boolean;
   connected: boolean;
   room: RoomSnapshot | null;
   selfId: string;
+  /** 当前用的哪种模式 */
+  mode: TogetherMode;
+  /** 自建模式的服务器地址 */
   server: string;
+  /** 云模式用的公共 broker（留空即默认） */
+  broker: string;
   code: string;
   nickname: string;
   chats: ChatItem[];
   error: string | null;
   /** 服务器与本地时钟差（毫秒），用于对齐播放进度 */
   clockOffset: number;
+  /** 云模式下我是不是房主 */
+  amHost: boolean;
 
+  setMode: (m: TogetherMode) => void;
   init: () => Promise<void>;
-  createRoom: (server: string, name: string) => Promise<string>;
-  joinRoom: (server: string, code: string, name: string, avatar: string) => Promise<void>;
+  createCloud: (name: string) => Promise<string>;
+  joinCloud: (code: string, name: string) => Promise<void>;
+  createServer: (server: string, name: string) => Promise<string>;
+  joinServer: (server: string, code: string, name: string) => Promise<void>;
   leave: () => Promise<void>;
   sendChat: (text: string) => Promise<void>;
 
@@ -34,28 +47,65 @@ export const useTogether = create<TogetherState>((set, get) => ({
   connected: false,
   room: null,
   selfId: '',
+  mode: 'cloud',
   server: 'http://127.0.0.1:8787',
+  broker: '',
   code: '',
   nickname: '',
   chats: [],
   error: null,
   clockOffset: 0,
+  amHost: false,
+
+  setMode: (mode) => set({ mode, error: null }),
 
   init: async () => {
     try {
-      const server = await api.togetherDefaultServer();
-      const settings = await api.getSettings();
-      set({ server, nickname: settings.nickname });
+      const [server, settings] = await Promise.all([
+        api.togetherDefaultServer(),
+        api.getSettings(),
+      ]);
+      set({ server: server || 'http://127.0.0.1:8787', nickname: settings.nickname });
     } catch {
-      /* 忽略：没启动后端时静默 */
+      /* 后端没起来时静默，UI 仍可显示 */
     }
   },
 
-  createRoom: async (server, name) => {
+  createCloud: async (name) => {
+    set({ connecting: true, error: null });
+    try {
+      const res = await api.togetherCloudHost({
+        name,
+        broker: get().broker.trim() || undefined,
+      });
+      set({ connecting: false, code: res.code, mode: 'cloud', nickname: name, amHost: true });
+      return res.code;
+    } catch (e) {
+      set({ connecting: false, error: (e as Error).message });
+      throw e;
+    }
+  },
+
+  joinCloud: async (code, name) => {
+    set({ connecting: true, error: null });
+    try {
+      await api.togetherCloudJoin({
+        code,
+        name,
+        broker: get().broker.trim() || undefined,
+      });
+      set({ joined: true, connecting: false, code, mode: 'cloud', nickname: name, chats: [] });
+    } catch (e) {
+      set({ connecting: false, error: (e as Error).message });
+      throw e;
+    }
+  },
+
+  createServer: async (server, name) => {
     set({ connecting: true, error: null });
     try {
       const { code } = await api.togetherCreate(server, name);
-      set({ connecting: false, server, code });
+      set({ connecting: false, server, code, mode: 'server' });
       return code;
     } catch (e) {
       set({ connecting: false, error: (e as Error).message });
@@ -63,11 +113,11 @@ export const useTogether = create<TogetherState>((set, get) => ({
     }
   },
 
-  joinRoom: async (server, code, name, avatar) => {
+  joinServer: async (server, code, name) => {
     set({ connecting: true, error: null });
     try {
-      await api.togetherJoin({ server, code, name, avatar });
-      set({ joined: true, connecting: false, server, code, nickname: name, chats: [] });
+      await api.togetherJoin({ server, code, name, avatar: '' });
+      set({ joined: true, connecting: false, server, code, mode: 'server', nickname: name, chats: [] });
     } catch (e) {
       set({ connecting: false, error: (e as Error).message });
       throw e;
@@ -78,7 +128,7 @@ export const useTogether = create<TogetherState>((set, get) => ({
     try {
       await api.togetherLeave();
     } finally {
-      set({ joined: false, connected: false, room: null, selfId: '', code: '', chats: [] });
+      set({ joined: false, connected: false, room: null, selfId: '', code: '', chats: [], amHost: false });
     }
   },
 
@@ -93,12 +143,13 @@ export const useTogether = create<TogetherState>((set, get) => ({
     if (kind === 'connected') {
       const offset = (ev.room?.server_time ?? Date.now()) - Date.now();
       set({ connected: true, selfId: ev.selfId, room: ev.room, clockOffset: offset, joined: true });
+      // 同步一次「我是不是房主」，云模式下由后端判定
+      void api.togetherAmHost().then((h) => set({ amHost: h })).catch(() => {});
       return;
     }
     if (kind === 'room') {
       const prev = get().room;
       const room: RoomSnapshot = ev.room;
-      // 保留本地聊天记录，房间快照不含它
       set({
         room,
         clockOffset: room.server_time - Date.now(),
@@ -138,7 +189,7 @@ export const useTogether = create<TogetherState>((set, get) => ({
       return;
     }
     if (kind === 'disconnected') {
-      set({ connected: false, joined: false, room: null, error: ev.reason ?? '已断开' });
+      set({ connected: false, joined: false, room: null, error: ev.reason ?? '已断开', amHost: false });
       return;
     }
     if (kind === 'error') {
@@ -147,7 +198,8 @@ export const useTogether = create<TogetherState>((set, get) => ({
   },
 
   isHost: () => {
-    const { room, selfId } = get();
+    const { room, selfId, amHost, mode } = get();
+    if (mode === 'cloud') return amHost;
     return !!room && room.host_id === selfId;
   },
 
@@ -157,7 +209,7 @@ export const useTogether = create<TogetherState>((set, get) => ({
   },
 }));
 
-/** 把房间状态换算成"此刻应该播放到哪里" */
+/** 把房间状态换算成「此刻应该播放到哪里」 */
 export function expectedPosition(room: RoomSnapshot, clockOffset: number): number {
   const base = room.state.position_ms;
   if (!room.state.playing) return base;

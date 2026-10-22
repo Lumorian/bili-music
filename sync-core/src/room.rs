@@ -167,6 +167,108 @@ impl Room {
     }
 }
 
+/// 应用一条客户端消息到房间状态。
+/// 自建服务器和「云房间」（房主代行服务器职责）共用这一份逻辑，
+/// 保证两种模式的同步语义完全一致。
+pub fn apply_client_msg(room: &mut Room, member_id: &str, msg: crate::protocol::ClientMsg) {
+    use crate::protocol::ClientMsg;
+    match msg {
+        ClientMsg::Hello { name, avatar } => {
+            if let Some(m) = room.members.get_mut(member_id) {
+                m.name = name;
+                m.avatar = avatar;
+            }
+            room.broadcast_room();
+        }
+        ClientMsg::Sync => {
+            let snap = room.snapshot();
+            let _ = room.tx.send(crate::protocol::ServerMsg::Room(snap));
+        }
+        ClientMsg::Ping { t } => {
+            let _ = room.tx.send(crate::protocol::ServerMsg::Pong { t, server_time: now_ms() });
+        }
+        ClientMsg::Progress { position_ms, playing } => {
+            if let Some(m) = room.members.get_mut(member_id) {
+                m.position_ms = position_ms;
+                m.playing = playing;
+            }
+            room.last_active = now_ms();
+        }
+        ClientMsg::SetQueue { queue, index } => {
+            room.queue = queue;
+            room.state.index = index.min(room.queue.len().saturating_sub(1));
+            room.set_state(0, true, member_id);
+            room.broadcast_queue();
+            room.broadcast_state();
+        }
+        ClientMsg::AddTrack { track, next } => {
+            let was_empty = room.queue.is_empty();
+            room.add_track(track, next);
+            if was_empty {
+                room.state.index = 0;
+                room.set_state(0, true, member_id);
+                room.broadcast_state();
+            }
+            room.broadcast_queue();
+        }
+        ClientMsg::RemoveTrack { index } => {
+            if index < room.queue.len() {
+                room.queue.remove(index);
+                if room.state.index >= room.queue.len() {
+                    room.state.index = room.queue.len().saturating_sub(1);
+                }
+                let playing = room.state.playing;
+                room.set_state(0, playing, member_id);
+                room.broadcast_queue();
+                room.broadcast_state();
+            }
+        }
+        ClientMsg::PlayIndex { index, position_ms } => {
+            if index < room.queue.len() {
+                room.state.index = index;
+                room.set_state(position_ms, true, member_id);
+                room.broadcast_state();
+            }
+        }
+        ClientMsg::SetPlaying { playing, position_ms } => {
+            room.set_state(position_ms, playing, member_id);
+            room.broadcast_state();
+        }
+        ClientMsg::Seek { position_ms } => {
+            let playing = room.state.playing;
+            room.set_state(position_ms, playing, member_id);
+            room.broadcast_state();
+        }
+        ClientMsg::Next => {
+            if room.move_index(1, member_id) {
+                room.broadcast_state();
+            }
+        }
+        ClientMsg::Prev => {
+            if room.move_index(-1, member_id) {
+                room.broadcast_state();
+            }
+        }
+        ClientMsg::Chat { text } => {
+            let name = room.members.get(member_id).map(|m| m.name.clone()).unwrap_or_default();
+            room.broadcast_chat(member_id, &name, &text);
+        }
+        ClientMsg::TransferHost { member_id: target } => {
+            if room.host_id == member_id && room.members.contains_key(&target) {
+                room.host_id = target;
+                room.broadcast_room();
+            }
+        }
+        ClientMsg::Kick { member_id: target } => {
+            if room.host_id == member_id && target != member_id {
+                room.members.remove(&target);
+                let _ = room.tx.send(crate::protocol::ServerMsg::Kicked { reason: "被房主移出房间".into() });
+                room.broadcast_room();
+            }
+        }
+    }
+}
+
 /// 房间注册表：进程内的房间集合
 #[derive(Clone, Default)]
 pub struct Rooms {

@@ -94,6 +94,11 @@ const handlers: Record<string, (args: Record<string, any>) => unknown> = {
   together_transfer_host: () => null,
   together_kick: () => null,
   together_default_server: () => 'http://127.0.0.1:8787',
+
+  together_cloud_host: () => ({ code: '123456', mode: 'cloud' }),
+  together_cloud_join: () => ({ ok: true, mode: 'cloud' }),
+  together_cloud_probe: ({ broker }: any) => ({ ok: true, broker: broker ?? 'wss://broker.emqx.io:8084/mqtt' }),
+  together_am_host: () => true,
   together_ping: () => ({ ok: true }),
 };
 
