@@ -1,16 +1,17 @@
-export type Source = 'bilibili' | 'netease';
+export type Source = 'bilibili';
 
 export interface Track {
   source: Source;
-  /** bvid 或 歌曲 id */
+  /** B 站视频 bvid */
   id: string;
   title: string;
   artist: string;
   cover: string;
   duration_ms: number;
-  /** B 站用来记 cid */
+  /** 分 P 的 cid，拿音轨时要用 */
   extra?: string | null;
   album?: string | null;
+  /** 播放量之类的副标题 */
   subtitle?: string | null;
 }
 
@@ -84,9 +85,8 @@ export interface Settings {
   togetherServer: string;
   nickname: string;
   bilibili: { name: string; avatar: string; loggedIn: boolean };
-  netease: { name: string; avatar: string; loggedIn: boolean };
 }
 
 export type PlayMode = 'order' | 'repeat' | 'single' | 'shuffle';
 
-export type PageId = 'home' | 'search' | 'discover' | 'library' | 'together' | 'settings';
+export type PageId = 'home' | 'search' | 'library' | 'together' | 'settings';

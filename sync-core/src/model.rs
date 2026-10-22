@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-/// 统一曲目模型：B 站音频 / 网易云歌曲 都归一到这里，
+/// 曲目模型：一条 B 站视频的音频轨，
 /// 一起听的队列也直接复用它，所以两端字段必须保持稳定。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Track {
-    /// "bilibili" 或 "netease"
+    /// 目前只有 "bilibili"
     pub source: String,
     /// bvid 或 歌曲 id
     pub id: String,

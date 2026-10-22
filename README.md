@@ -1,7 +1,7 @@
 # BiliMusic
 
-> 只用来**听**的哔哩哔哩第三方客户端 —— 把视频画面整个剥掉，只留音轨；
-> 再把网易云音乐的**一起听**搬过来，和好友一起同步听歌。
+> 只用来**听**的哔哩哔哩第三方客户端 —— 把视频画面整个剥掉，只留音轨，
+> 再带一个「和好友一起听」的房间功能。
 
 支持 **GNU/Linux · Windows · Android**，桌面端与手机端共用一套 Rust 后端 + React 前端。
 
@@ -11,23 +11,21 @@
 
 ## 它是什么
 
-B 站的官方"听视频"功能很好用，但你必须开着视频页面、让播放器一直解码画面。
+B 站官方的"听视频"很好用，但你必须开着视频页面、让播放器一直解码画面。
 BiliMusic 做的事情很简单也很彻底：
 
 - **只请求 dash 里的纯音频轨**（`fnval=16` 的 `audio` 流），不下载、不解码任何视频帧。
   一首 4 分钟的歌通常只有 4~8 MB，内存占用几十 MB 级别。
-- 界面是**音乐播放器**的形态：首页榜单、搜索、我的收藏、最近播放、队列、歌词页，
+- 界面是**音乐播放器**的形态：榜单、搜索、收藏、最近播放、队列、正在播放页。
   没有弹幕、没有画面、没有推荐信息流。
-- 顺手接上**网易云曲库**，免费歌曲可以直接听，付费歌曲扫码登录后也能听。
 - **一起听**：自建一个房间服务器，好友输入 6 位房间号就能进房，
-  切歌 / 暂停 / 拖动进度 / 加歌 / 聊天 全部实时同步（WebSocket，含时钟补偿）。
+  切歌 / 暂停 / 拖动进度 / 加歌 / 聊天 全部实时同步。
 
 ## 功能一览
 
 | 模块 | 功能 |
 | --- | --- |
 | B 站 | 音乐区/演奏/翻唱/原创/VOCALOID 等分区排行、关键词搜索、相关推荐、收藏夹、稍后再看、扫码登录 |
-| 网易云 | 歌曲搜索、64 个官方榜单、歌单（含自己的歌单）、歌词 + 翻译、扫码登录 |
 | 播放 | 纯音频流、本地代理（补 Referer / 透传 Range 支持秒拖进度）、顺序/循环/单曲/随机、音量、全局快捷键（空格、Shift+←/→） |
 | 一起听 | 建房/进房、队列同步、播放状态同步（带服务器时间补偿）、成员进度小条、房主移交、踢人、房间聊天 |
 | 其它 | 本地收藏与最近播放、深色 UI、窄屏/手机自适应布局 |
@@ -45,7 +43,6 @@ BiliMusic 做的事情很简单也很彻底：
 ┌───────────────▼──────────────────────────────▼───────────────┐
 │  Tauri 2 后端 (src-tauri/)                                    │
 │  ├── bilibili.rs  wbi 签名、搜索、排行、playurl(dash audio)     │
-│  ├── netease.rs   搜索、歌单、榜单、播放地址、歌词、扫码          │
 │  ├── proxy.rs     本地音频代理 127.0.0.1:<随机端口>/stream/<tok> │
 │  ├── session.rs   登录态 / 设置持久化                           │
 │  └── together.rs  一起听客户端（把 sync-core 接进 Tauri）        │
@@ -72,7 +69,11 @@ Linux 需要 `webkit2gtk-4.1`、`libsoup3`、`gtk3`；Windows 需要 WebView2（
 npm install
 npm run tauri:dev        # 开发模式
 npm run tauri:build      # 打生产包（deb/rpm/AppImage / msi / exe）
+npm run sync:server      # 顺便起一个一起听房间服务器
 ```
+
+> 只想调 UI 的话，直接 `npm run dev` 在浏览器里打开即可 —— 没有 Tauri 运行时
+> 会自动走内置的假数据后端，不用联网。
 
 ## 一起听：自建房间服务器
 
@@ -104,31 +105,33 @@ BIND=0.0.0.0:9000 cargo run --release --manifest-path server/Cargo.toml
 | GET | `/api/rooms/{code}` | 房间快照 |
 | WS | `/ws/{code}?name=&avatar=` | 实时同步通道 |
 
-协议细节见 `sync-core/src/protocol.rs`（`ClientMsg` / `ServerMsg`，JSON + `type` 标签）。
+协议细节见 `sync-core/src/protocol.rs` 与 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
 
 ## Android
 
+详细步骤（含 SDK / NDK 安装、串口调试）见 **[docs/ANDROID.md](docs/ANDROID.md)**。速览：
+
 ```bash
-npm run android:init     # 首次：生成 src-tauri/gen/android（需要 Android SDK + NDK）
-npm run android:dev      # 真机 / 模拟器上热重载
+npm run android:init     # 首次：生成 src-tauri/gen/android
+npm run android:dev      # 真机 / 模拟器热重载
 npm run android:build    # 打包 APK / AAB
 ```
 
-- 需要 `ANDROID_HOME`、`NDK_HOME`（NDK 26+），以及 `rustup target add aarch64-linux-android`。
-- 手机上本地音频代理同样跑在 `127.0.0.1`，不需要额外配置。
-- 界面在窄屏下自动切到底部标签栏布局。
+需要 `ANDROID_HOME`、`NDK_HOME`（NDK 26+）、JDK 17+，以及
+`rustup target add aarch64-linux-android armv7-linux-androideabi`。
+
+手机上本地音频代理同样跑在 `127.0.0.1`，不需要额外配置；界面在窄屏下自动切到底部标签栏。
 
 ## 目录结构
 
 ```
 ├── src/                 前端（React + TS）
 │   ├── components/      Player / NowPlaying / QueuePanel / QrLogin / Toast / Icons
-│   ├── pages/           Home / Search / Discover / Library / Together / Settings
+│   ├── pages/           Home / Search / Library / Together / Settings
 │   ├── store/           player / together / library（zustand）
-│   └── lib/             api（invoke 封装）/ audio（播放引擎）/ format
+│   └── lib/             api（invoke 封装）/ audio（播放引擎）/ format / mock
 ├── src-tauri/           桌面端 + 安卓端 Rust 后端
 │   ├── src/bilibili.rs  B 站接口（wbi 签名）
-│   ├── src/netease.rs   网易云接口
 │   ├── src/proxy.rs     本地音频代理
 │   ├── src/together*.rs 一起听接入
 │   └── tests/           联网冒烟测试 + 代理测试
@@ -139,16 +142,17 @@ npm run android:build    # 打包 APK / AAB
 ## 测试
 
 ```bash
-npx tsc --noEmit                                  # 前端类型检查
-cargo test -p bili-music --test proxy             # 本地代理（离线可跑）
-cargo test -p bili-music --test live -- --nocapture  # 联网冒烟（B 站 + 网易云）
+npx tsc --noEmit                                     # 前端类型检查
+cargo test -p bili-music-sync                        # 房间状态机（离线）
+cargo test -p bili-music --test proxy                # 本地代理（离线）
+cargo test -p bili-music --test live -- --nocapture  # 联网冒烟（B 站）
 ```
 
 ## 已知限制
 
-- **B 站没有歌词接口**（多数视频也没有字幕），所以 B 站曲目没有歌词，歌词页只对网易云曲目生效。
-- 付费/会员专享的网易云歌曲需要登录且会员有效，否则会提示"版权未授权"。
-- 一起听的房间状态保存在内存里，服务器重启后房间会消失（单房间复杂度够用）。
+- **B 站没有歌词接口**（多数视频也没有字幕），所以正在播放页展示的是
+  视频简介和分 P 列表，而不是歌词。
+- 一起听的房间状态保存在内存里，服务器重启后房间会消失（单机场景够用）。
 - 官方接口随时可能调整风控（`-352`），代码里已做密钥失效自动重试，但仍需自行承担风险。
 
 ## 免责声明

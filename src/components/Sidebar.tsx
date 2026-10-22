@@ -19,7 +19,6 @@ interface Props {
 const MAIN: { id: PageId; label: string; icon: ReactNode }[] = [
   { id: 'home', label: '音乐首页', icon: <IconHome size={18} /> },
   { id: 'search', label: '搜索', icon: <IconSearch size={18} /> },
-  { id: 'discover', label: '网易云榜单', icon: <IconMusic size={18} /> },
   { id: 'library', label: '我的音乐', icon: <IconLibrary size={18} /> },
   { id: 'together', label: '一起听', icon: <IconUsers size={18} /> },
 ];

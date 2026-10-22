@@ -6,7 +6,7 @@ use bili_music_sync::room::{gen_code, Room, Rooms};
 
 fn track(id: &str, dur: u64) -> Track {
     Track {
-        source: "netease".into(),
+        source: "bilibili".into(),
         id: id.into(),
         title: format!("歌 {id}"),
         artist: "歌手".into(),

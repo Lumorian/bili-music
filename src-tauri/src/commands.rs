@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 use crate::bilibili;
 use crate::error::{AppError, AppResult};
 use crate::model::{Page, StreamInfo, Track, UserInfo};
-use crate::netease;
 use crate::proxy;
 use crate::session;
 
@@ -56,21 +55,6 @@ pub async fn resolve_stream_inner(track: &Track) -> AppResult<StreamInfo> {
                 stream_url: url,
                 url: audio.url,
                 mime: audio.mime,
-                expires_at: crate::now_ms() + 7_200_000,
-            })
-        }
-        "netease" => {
-            let (link, mime, _size) = netease::song_url(&track.id, 320_000).await?;
-            let (_, url) = proxy::state().register(
-                link.clone(),
-                Vec::new(),
-                "https://music.163.com".into(),
-                mime.clone(),
-            );
-            Ok(StreamInfo {
-                stream_url: url,
-                url: link,
-                mime,
                 expires_at: crate::now_ms() + 7_200_000,
             })
         }
@@ -164,80 +148,6 @@ pub async fn bili_logout() -> AppResult<()> {
     bilibili::logout().await
 }
 
-// ---------- 网易云 ----------
-
-#[tauri::command]
-pub async fn ne_search(keyword: String, page: Option<u32>) -> AppResult<Page<Track>> {
-    netease::search(&keyword, page.unwrap_or(1)).await
-}
-
-#[tauri::command]
-pub async fn ne_song(id: String) -> AppResult<Track> {
-    netease::song_detail(&id).await
-}
-
-#[tauri::command]
-pub async fn ne_lyric(id: String) -> AppResult<Value> {
-    let (lrc, tlrc) = netease::lyric(&id).await?;
-    Ok(json!({ "lrc": lrc, "translation": tlrc }))
-}
-
-#[tauri::command]
-pub async fn ne_toplists() -> AppResult<Vec<Value>> {
-    let list = netease::toplists().await?;
-    Ok(list.into_iter().map(|(name, id)| json!({ "name": name, "id": id })).collect())
-}
-
-#[tauri::command]
-pub async fn ne_playlist(id: String) -> AppResult<Value> {
-    let (name, tracks) = netease::playlist_detail(&id).await?;
-    Ok(json!({ "name": name, "tracks": tracks }))
-}
-
-#[tauri::command]
-pub async fn ne_my_playlists() -> AppResult<Vec<Value>> {
-    let me = netease::me().await;
-    if !me.logged_in || me.mid.is_empty() {
-        return Ok(Vec::new());
-    }
-    let list = netease::user_playlists(&me.mid).await?;
-    Ok(list
-        .into_iter()
-        .map(|(name, id, count)| json!({ "name": name, "id": id, "count": count }))
-        .collect())
-}
-
-#[tauri::command]
-pub async fn ne_me() -> AppResult<UserInfo> {
-    Ok(netease::me().await)
-}
-
-#[tauri::command]
-pub async fn ne_qr() -> AppResult<QrPayload> {
-    let key = netease::qr_key().await?;
-    let content = netease::qr_content(&key);
-    Ok(QrPayload { content, key })
-}
-
-/// 返回 (状态码, 说明)：800 过期 / 801 待扫描 / 802 已扫描待确认 / 803 成功
-#[tauri::command]
-pub async fn ne_qr_poll(key: String) -> AppResult<Value> {
-    let (code, message) = netease::qr_poll(&key).await?;
-    if code == 803 {
-        let me = netease::me().await;
-        session::update(|s| {
-            s.netease_name = me.name.clone();
-            s.netease_avatar = me.avatar.clone();
-        })?;
-    }
-    Ok(json!({ "code": code, "message": message }))
-}
-
-#[tauri::command]
-pub async fn ne_logout() -> AppResult<()> {
-    netease::logout().await
-}
-
 // ---------- 会话 / 设置 ----------
 
 #[tauri::command]
@@ -247,7 +157,6 @@ pub async fn get_settings() -> AppResult<Value> {
         "togetherServer": s.together_server,
         "nickname": s.nickname,
         "bilibili": { "name": s.bilibili_name, "avatar": s.bilibili_avatar, "loggedIn": !s.bilibili_cookie.is_empty() && !s.bilibili_name.is_empty() },
-        "netease": { "name": s.netease_name, "avatar": s.netease_avatar, "loggedIn": !s.netease_cookie.is_empty() && !s.netease_name.is_empty() },
     }))
 }
 

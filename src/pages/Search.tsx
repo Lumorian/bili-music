@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import type { Source, Track } from '../lib/types';
+import type { Track } from '../lib/types';
 import { trackKey } from '../lib/format';
 import { usePlayer } from '../store/player';
 import { TrackRow } from '../components/TrackRow';
 import { toast } from '../components/Toast';
 
-const HOT = ['周杰伦', 'VOCALOID', '纯音乐', '轻音乐 学习', '中文说唱', '古典音乐', '洛天依', '游戏BGM'];
+const HOT = ['纯音乐', 'VOCALOID', '轻音乐 学习', '钢琴', '国风', 'lofi', '周杰伦', '游戏BGM'];
 
-export function Search({ initialSource }: { initialSource?: Source }) {
-  const [source, setSource] = useState<Source>(initialSource ?? 'bilibili');
+export function Search() {
   const [keyword, setKeyword] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -24,25 +23,21 @@ export function Search({ initialSource }: { initialSource?: Source }) {
   const setQueue = usePlayer((s) => s.setQueue);
   const currentKey = queue[index] ? trackKey(queue[index]) : null;
 
-  const run = useCallback(
-    async (kw: string, pg: number, replace: boolean) => {
-      if (!kw.trim()) return;
-      setLoading(true);
-      setError('');
-      try {
-        const res =
-          source === 'bilibili' ? await api.biliSearch(kw, pg) : await api.neSearch(kw, pg);
-        setTracks((prev) => (replace ? res.items : [...prev, ...res.items]));
-        setHasMore(res.has_more);
-        setPage(pg);
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [source],
-  );
+  const run = useCallback(async (kw: string, pg: number, replace: boolean) => {
+    if (!kw.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.biliSearch(kw, pg);
+      setTracks((prev) => (replace ? res.items : [...prev, ...res.items]));
+      setHasMore(res.has_more);
+      setPage(pg);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const submit = (kw = keyword) => {
     const clean = kw.trim();
@@ -52,34 +47,20 @@ export function Search({ initialSource }: { initialSource?: Source }) {
     void run(clean, 1, true);
   };
 
-  useEffect(() => {
-    // 切换音源后自动用同一关键词重搜一次，体验更顺
-    if (submitted) void run(submitted, 1, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source]);
-
   return (
     <div>
       <div className="page-head">
         <div>
           <h1 className="page-title">搜索</h1>
-          <p className="page-sub">同时支持 B 站视频音频与网易云曲库</p>
+          <p className="page-sub">搜视频 / UP 主 / 歌名，播放时只取音频轨</p>
         </div>
       </div>
 
       <div className="search-bar">
-        <div className="source-switch">
-          <button className={source === 'bilibili' ? 'active' : ''} onClick={() => setSource('bilibili')}>
-            B 站
-          </button>
-          <button className={source === 'netease' ? 'active' : ''} onClick={() => setSource('netease')}>
-            网易云
-          </button>
-        </div>
         <input
           ref={inputRef}
           className="input"
-          placeholder={source === 'bilibili' ? '搜视频 / UP 主 / 歌名…' : '搜歌曲 / 歌手 / 专辑…'}
+          placeholder="搜视频 / UP 主 / 歌名…"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}

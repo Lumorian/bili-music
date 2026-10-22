@@ -26,12 +26,8 @@ fn file_path() -> Option<PathBuf> {
 pub struct Session {
     /// B 站 Cookie 串，形如 "SESSDATA=xx; bili_jct=yy; DedeUserID=zz"
     pub bilibili_cookie: String,
-    /// 网易云 Cookie 串
-    pub netease_cookie: String,
     pub bilibili_name: String,
     pub bilibili_avatar: String,
-    pub netease_name: String,
-    pub netease_avatar: String,
     /// 同步服务器地址（一起听）
     pub together_server: String,
     pub nickname: String,

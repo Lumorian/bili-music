@@ -13,16 +13,14 @@ interface Folder {
   media_count: number;
 }
 
-type Tab = 'fav' | 'recent' | 'bili' | 'netease';
+type Tab = 'fav' | 'recent' | 'bili';
 
-export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => void }) {
+export function Library({ onLogin }: { onLogin: () => void }) {
   const [tab, setTab] = useState<Tab>('fav');
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderTracks, setFolderTracks] = useState<Track[]>([]);
   const [activeFolder, setActiveFolder] = useState<number | null>(null);
-  const [neLists, setNeLists] = useState<{ name: string; id: string; count: number }[]>([]);
   const [loggedBili, setLoggedBili] = useState(false);
-  const [loggedNe, setLoggedNe] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const favorites = useLibrary((s) => s.favorites);
@@ -42,13 +40,6 @@ export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => v
         }
       })
       .catch(() => {});
-    api
-      .neMe()
-      .then((me) => {
-        setLoggedNe(me.logged_in);
-        if (me.logged_in) return api.neMyPlaylists().then(setNeLists);
-      })
-      .catch(() => {});
   }, []);
 
   const openFolder = async (f: Folder) => {
@@ -57,20 +48,6 @@ export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => v
     try {
       const res = await api.biliFavList(f.id, 1);
       setFolderTracks(res.items);
-    } catch (e) {
-      toast((e as Error).message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openNeList = async (id: string, name: string) => {
-    setActiveFolder(Number(id));
-    setLoading(true);
-    try {
-      const res = await api.nePlaylist(id);
-      setFolderTracks(res.tracks);
-      toast(`已加载「${name}」`);
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally {
@@ -89,7 +66,7 @@ export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => v
       <div className="page-head">
         <div>
           <h1 className="page-title">我的音乐</h1>
-          <p className="page-sub">本地收藏 · 最近播放 · 站内收藏夹 · 网易云歌单</p>
+          <p className="page-sub">本地收藏 · 最近播放 · B 站收藏夹</p>
         </div>
       </div>
 
@@ -102,9 +79,6 @@ export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => v
         </button>
         <button className={`chip ${tab === 'bili' ? 'active' : ''}`} onClick={() => setTab('bili')}>
           B 站收藏夹
-        </button>
-        <button className={`chip ${tab === 'netease' ? 'active' : ''}`} onClick={() => setTab('netease')}>
-          网易云歌单
         </button>
       </div>
 
@@ -151,7 +125,7 @@ export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => v
           {!loggedBili ? (
             <div className="empty">
               登录 B 站后才能同步收藏夹
-              <button className="btn primary" onClick={() => onLogin('bilibili')}>
+              <button className="btn primary" onClick={onLogin}>
                 扫码登录
               </button>
             </div>
@@ -191,43 +165,6 @@ export function Library({ onLogin }: { onLogin: (p: 'bilibili' | 'netease') => v
         </>
       )}
 
-      {tab === 'netease' && (
-        <>
-          {!loggedNe ? (
-            <div className="empty">
-              登录网易云后可以加载自己的歌单
-              <button className="btn primary" onClick={() => onLogin('netease')}>
-                扫码登录
-              </button>
-            </div>
-          ) : (
-            <div className="chips">
-              {neLists.map((l) => (
-                <button key={l.id} className="chip" onClick={() => openNeList(l.id, l.name)}>
-                  {l.name}（{l.count}）
-                </button>
-              ))}
-            </div>
-          )}
-          {loading && (
-            <div className="empty">
-              <span className="spinner" />
-            </div>
-          )}
-          {!loading && folderTracks.length > 0 && tab === 'netease' && (
-            <>
-              <button className="btn primary" style={{ marginBottom: 12 }} onClick={() => playAll(folderTracks)}>
-                播放全部
-              </button>
-              <div className="track-list">
-                {folderTracks.map((t, i) => (
-                  <TrackRow key={`${t.source}-${t.id}-${i}`} track={t} index={i} active={currentKey === trackKey(t)} />
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
   );
 }

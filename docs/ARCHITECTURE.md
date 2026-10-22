@@ -7,7 +7,7 @@
 ─────────────────                ──────────────────────
 pages/    页面                   commands.rs   命令注册
 components/ 播放器/队列/扫码      bilibili.rs   B 站接口（wbi 签名）
-store/    zustand 状态            netease.rs    网易云接口
+store/    zustand 状态            (仅 B 站接口)
 lib/api   invoke 封装             proxy.rs      本地音频代理
 lib/audio 单例 <audio>            session.rs    登录态持久化
                                   together.rs   一起听客户端

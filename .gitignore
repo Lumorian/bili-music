@@ -8,18 +8,28 @@ dist/
 target/
 src-tauri/target/
 server/target/
+
+# 本机的 Android 工具链（体积很大，不要进仓库）
+.android-sdk/
+.android-user-home/
+.rustup/
+.gradle-home/
+*.log
+
+# Android 工程的构建产物
 src-tauri/gen/android/.gradle/
-src-tauri/gen/android/app/build/
 src-tauri/gen/android/build/
-src-tauri/gen/android/.idea/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/.tauri/
 src-tauri/gen/android/local.properties
+src-tauri/gen/android/.kotlin/
 src-tauri/gen/schemas/
 
 # 开发期临时目录
 .tmptest/
+.shot/
 
-# logs & env
-*.log
+# env
 .env
 .env.local
 

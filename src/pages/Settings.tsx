@@ -4,7 +4,7 @@ import type { Settings as SettingsT } from '../lib/types';
 import { toast } from '../components/Toast';
 
 interface Props {
-  onLogin: (p: 'bilibili' | 'netease') => void;
+  onLogin: () => void;
   onReload: () => void;
 }
 
@@ -52,7 +52,7 @@ export function Settings({ onLogin, onReload }: Props) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13.5 }}>哔哩哔哩</div>
+            <div style={{ fontSize: 13.5 }}>B 站账号</div>
             <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 3 }}>
               {settings?.bilibili.loggedIn ? `已登录：${settings.bilibili.name}` : '未登录（不影响听歌）'}
             </div>
@@ -69,34 +69,7 @@ export function Settings({ onLogin, onReload }: Props) {
               退出登录
             </button>
           ) : (
-            <button className="btn primary" onClick={() => onLogin('bilibili')}>
-              扫码登录
-            </button>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: '1px solid var(--line)' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13.5 }}>网易云音乐</div>
-            <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 3 }}>
-              {settings?.netease.loggedIn
-                ? `已登录：${settings.netease.name}`
-                : '未登录时只能播放免费歌曲'}
-            </div>
-          </div>
-          {settings?.netease.loggedIn ? (
-            <button
-              className="btn danger"
-              onClick={async () => {
-                await api.neLogout();
-                toast('已退出网易云账号');
-                refresh();
-              }}
-            >
-              退出登录
-            </button>
-          ) : (
-            <button className="btn primary" onClick={() => onLogin('netease')}>
+            <button className="btn primary" onClick={onLogin}>
               扫码登录
             </button>
           )}

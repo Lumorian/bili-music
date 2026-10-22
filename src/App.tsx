@@ -8,7 +8,6 @@ import { QrLogin } from './components/QrLogin';
 import { ToastHost, toast } from './components/Toast';
 import { Home } from './pages/Home';
 import { Search } from './pages/Search';
-import { Discover } from './pages/Discover';
 import { Library } from './pages/Library';
 import { Together } from './pages/Together';
 import { Settings } from './pages/Settings';
@@ -26,8 +25,10 @@ export function App() {
   const [page, setPage] = useState<PageId>('home');
   const [queueOpen, setQueueOpen] = useState(false);
   const [nowOpen, setNowOpen] = useState(false);
-  const [login, setLogin] = useState<'bilibili' | 'netease' | null>(null);
+  const [login, setLogin] = useState(false);
   const [version, setVersion] = useState('0.1.0');
+  // 登录成功后自增，用来强制重挂当前页面以刷新登录态
+  const [reloadKey, setReloadKey] = useState(0);
   const [narrow, setNarrow] = useState(window.innerWidth <= 900);
 
   const player = usePlayer();
@@ -143,9 +144,8 @@ export function App() {
   }, []);
 
   const onLoginSuccess = useCallback(() => {
-    setLogin(null);
-    // 重新挂载当前页面以刷新登录态
-    setPage((p: PageId) => p);
+    setLogin(false);
+    setReloadKey((n) => n + 1);
   }, []);
 
   const body = () => {
@@ -154,14 +154,12 @@ export function App() {
         return <Home onGoSearch={() => setPage('search')} />;
       case 'search':
         return <Search />;
-      case 'discover':
-        return <Discover />;
       case 'library':
-        return <Library onLogin={(p) => setLogin(p)} />;
+        return <Library onLogin={() => setLogin(true)} />;
       case 'together':
         return <Together onGoSearch={() => setPage('search')} />;
       case 'settings':
-        return <Settings onLogin={(p) => setLogin(p)} onReload={() => setPage('settings')} />;
+        return <Settings onLogin={() => setLogin(true)} onReload={() => setPage('settings')} />;
       default:
         return null;
     }
@@ -172,7 +170,7 @@ export function App() {
       <Sidebar page={page} onNavigate={setPage} version={version} />
 
       <main className="main">
-        <div key={page}>{body()}</div>
+        <div key={`${page}-${reloadKey}`}>{body()}</div>
       </main>
 
       <Player onOpenQueue={() => setQueueOpen(true)} onOpenNowPlaying={() => setNowOpen(true)} />
@@ -199,12 +197,7 @@ export function App() {
 
       <NowPlaying open={nowOpen} onClose={() => setNowOpen(false)} />
       <QueuePanel open={queueOpen} onClose={() => setQueueOpen(false)} />
-      <QrLogin
-        platform={login ?? 'bilibili'}
-        open={login !== null}
-        onClose={() => setLogin(null)}
-        onSuccess={onLoginSuccess}
-      />
+      <QrLogin open={login} onClose={() => setLogin(false)} onSuccess={onLoginSuccess} />
       <ToastHost />
     </div>
   );

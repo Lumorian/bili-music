@@ -1,8 +1,8 @@
-//! BiliMusic：只用来听歌的 B 站客户端 + 网易云一起听
+//! BiliMusic：只用来听歌的 B 站客户端 + 一起听
 //!
 //! 架构：
 //!   前端 (React/TS)  ←invoke/event→  本 crate (Tauri)
-//!   本 crate 负责：B 站接口(wbi 签名)、网易云接口、本地音频代理、一起听客户端
+//!   本 crate 负责：B 站接口(wbi 签名)、本地音频代理、一起听客户端
 //!   sync-core：一起听的协议与房间服务器实现（桌面端和 Android 共用）
 
 pub mod bilibili;
@@ -10,7 +10,6 @@ pub mod commands;
 pub mod error;
 pub mod http;
 pub mod model;
-pub mod netease;
 pub mod proxy;
 pub mod session;
 pub mod together;
@@ -66,16 +65,6 @@ pub fn run() {
             commands::bili_qr,
             commands::bili_qr_poll,
             commands::bili_logout,
-            commands::ne_search,
-            commands::ne_song,
-            commands::ne_lyric,
-            commands::ne_toplists,
-            commands::ne_playlist,
-            commands::ne_my_playlists,
-            commands::ne_me,
-            commands::ne_qr,
-            commands::ne_qr_poll,
-            commands::ne_logout,
             commands::get_settings,
             commands::save_settings,
             commands::app_info,

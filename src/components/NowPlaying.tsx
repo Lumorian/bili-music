@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
-import { fmtTime, parseLrc, type LyricLine } from '../lib/format';
+import { fmtTime } from '../lib/format';
+import type { TrackDetail } from '../lib/types';
 import { usePlayer } from '../store/player';
 import { useTogether, expectedPosition } from '../store/together';
 import { IconChevronDown, IconHeart } from './Icons';
@@ -11,59 +12,51 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * 全屏"正在播放"页。
+ * B 站视频基本没有歌词接口，这里展示的是视频简介 + 分 P 列表，
+ * 用来替代歌词位置，既符合"只听"的定位，也不假装有歌词。
+ */
 export function NowPlaying({ open, onClose }: Props) {
   const p = usePlayer();
   const track = p.queue[p.index] ?? null;
-  const [lines, setLines] = useState<LyricLine[]>([]);
-  const [active, setActive] = useState(-1);
-  const listRef = useRef<HTMLDivElement>(null);
+  const [detail, setDetail] = useState<TrackDetail | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const joined = useTogether((s) => s.joined && s.connected);
   const room = useTogether((s) => s.room);
   const fav = useLibrary((s) => (track ? s.isFavorite(track) : false));
   const toggleFavorite = useLibrary((s) => s.toggleFavorite);
 
+  const [, setBeat] = useState(0);
+  useEffect(() => {
+    if (!open || !joined) return;
+    const id = window.setInterval(() => setBeat((n) => n + 1), 500);
+    return () => window.clearInterval(id);
+  }, [open, joined]);
+
   const position = joined && room ? expectedPosition(room, useTogether.getState().clockOffset) : p.position;
 
   useEffect(() => {
     if (!open || !track) return;
     let alive = true;
-    setLines([]);
-    // B 站没有可用歌词接口（多数视频没有字幕），只有网易云有 LRC
-    if (track.source !== 'netease') return;
+    setDetail(null);
+    setLoading(true);
     api
-      .neLyric(track.id)
-      .then(({ lrc, translation }) => {
-        if (!alive) return;
-        const main = parseLrc(lrc);
-        const trans = parseLrc(translation);
-        const merged = main.map((l) => {
-          const t = trans.find((x) => Math.abs(x.time - l.time) < 700);
-          return t && t.text !== l.text ? { ...l, text: `${l.text}` } : l;
-        });
-        setLines(merged);
+      .biliDetail(track.id)
+      .then((d) => {
+        if (alive) setDetail(d);
       })
-      .catch(() => setLines([]));
+      .catch(() => {
+        /* 详情拿不到就算了，页面其它部分照常显示 */
+      })
+      .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, [open, track?.source, track?.id]);
+  }, [open, track?.id]);
 
-  useEffect(() => {
-    if (!lines.length) return;
-    let idx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].time <= position) idx = i;
-      else break;
-    }
-    setActive(idx);
-  }, [position, lines]);
-
-  useEffect(() => {
-    if (active < 0 || !listRef.current) return;
-    const el = listRef.current.querySelector<HTMLElement>(`[data-lyric="${active}"]`);
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [active]);
+  const chapters = useMemo(() => detail?.pages ?? [], [detail]);
 
   if (!open) return null;
 
@@ -75,7 +68,7 @@ export function NowPlaying({ open, onClose }: Props) {
         </button>
         <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>正在播放</div>
         <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-faint)' }}>
-          {track?.source === 'bilibili' ? 'B 站音频' : track?.source === 'netease' ? '网易云音乐' : ''}
+          B 站纯音频
         </div>
       </div>
 
@@ -86,7 +79,7 @@ export function NowPlaying({ open, onClose }: Props) {
             <h1 className="now-title">{track?.title ?? '未在播放'}</h1>
             <p className="now-artist">
               {track?.artist}
-              {track?.album ? ` · ${track.album}` : ''}
+              {track?.subtitle ? ` · ${track.subtitle}` : ''}
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
               <button
@@ -103,31 +96,41 @@ export function NowPlaying({ open, onClose }: Props) {
           </div>
         </div>
 
-        <div className="lyrics" ref={listRef}>
-          {lines.length === 0 ? (
+        <div className="lyrics">
+          {loading ? (
             <div className="empty" style={{ padding: 0 }}>
-              {track?.source === 'bilibili'
-                ? 'B 站的视频一般没有歌词，戴上耳机听吧 🎧'
-                : '暂无歌词'}
+              <span className="spinner" />
             </div>
           ) : (
-            lines.map((l, i) => (
-              <div
-                key={`${l.time}-${i}`}
-                data-lyric={i}
-                className={`lyric-line ${i === active ? 'active' : i < active ? 'passed' : ''}`}
-                onClick={() => {
-                  usePlayer.getState().seek(l.time);
-                  import('../lib/audio').then((m) => {
-                    m.guardSeek(600);
-                    const a = m.getAudio();
-                    if (a.readyState > 0) a.currentTime = l.time / 1000;
-                  });
-                }}
-              >
-                {l.text}
-              </div>
-            ))
+            <>
+              {chapters.length > 1 && (
+                <>
+                  <div className="now-section">分 P（共 {chapters.length} 段）</div>
+                  {chapters.map(([cid, part, dur], i) => (
+                    <div key={cid} className="now-paragraph now-chapter">
+                      <span className="now-chapter-idx">{String(i + 1).padStart(2, '0')}</span>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {part || `P${i + 1}`}
+                      </span>
+                      <span style={{ color: 'var(--text-faint)', fontSize: 12, flex: 'none' }}>
+                        {fmtTime(dur * 1000)}
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{ height: 22 }} />
+                </>
+              )}
+              {detail?.desc ? (
+                <>
+                  <div className="now-section">视频简介</div>
+                  <div className="now-paragraph now-desc">{detail.desc}</div>
+                </>
+              ) : (
+                <div className="empty" style={{ padding: 0 }}>
+                  戴上耳机听吧 🎧
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

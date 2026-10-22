@@ -93,7 +93,7 @@ export function Together({ onGoSearch }: { onGoSearch: () => void }) {
           <div>
             <h1 className="page-title">一起听</h1>
             <p className="page-sub">
-              像网易云那样和好友同步听歌：谁切歌、谁暂停、听哪儿了，全都实时同步
+              和好友同步听 B 站的歌：谁切歌、谁暂停、听到哪儿了，全都实时同步
             </p>
           </div>
         </div>
@@ -294,12 +294,7 @@ export function Together({ onGoSearch }: { onGoSearch: () => void }) {
                     <div className="track-index">{i === room.state.index ? '▶' : i + 1}</div>
                     <img className="track-cover" src={tr.cover} alt="" loading="lazy" />
                     <div className="track-main">
-                      <div className="track-title">
-                        <span className={`source-tag ${tr.source}`}>
-                          {tr.source === 'bilibili' ? 'B站' : '网易云'}
-                        </span>
-                        {tr.title}
-                      </div>
+                      <div className="track-title">{tr.title}</div>
                       <div className="track-sub">{tr.artist}</div>
                     </div>
                     <div className="track-dur">{fmtTime(tr.duration_ms)}</div>

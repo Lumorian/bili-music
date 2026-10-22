@@ -49,9 +49,6 @@ export function TrackRow({ track, index, active, onRemove, removable }: Props) {
       <img className="track-cover" src={track.cover} alt="" loading="lazy" draggable={false} />
       <div className="track-main">
         <div className="track-title">
-          <span className={`source-tag ${track.source}`}>
-            {track.source === 'bilibili' ? 'B站' : '网易云'}
-          </span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</span>
         </div>
         <div className="track-sub">

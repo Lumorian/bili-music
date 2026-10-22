@@ -77,7 +77,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   loadFromDisk: async () => {
     const disk = readDisk();
     set(disk);
-    // 登录了就把网易云收藏歌单也拉进来（失败不影响本地收藏）
+    // 顺手探一下后端是否就绪；失败不影响本地收藏的展示
     try {
       await api.appInfo();
     } catch {

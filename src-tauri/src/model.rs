@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-/// 统一曲目模型：B 站视频音频 / 网易云歌曲 都归一到这里
+/// 曲目模型：一条 B 站视频的音频轨
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
-    /// bilibili / netease
+    /// 目前只有 "bilibili"
     pub source: String,
     /// bvid 或 歌曲 id
     pub id: String,
@@ -11,7 +11,7 @@ pub struct Track {
     pub artist: String,
     pub cover: String,
     pub duration_ms: u64,
-    /// bilibili 用 cid，netease 用空
+    /// 分 P 的 cid，解析音轨时要用
     #[serde(default)]
     pub extra: Option<String>,
     #[serde(default)]

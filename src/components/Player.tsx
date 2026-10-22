@@ -164,7 +164,7 @@ export function Player({ onOpenQueue, onOpenNowPlaying }: Props) {
 
       <div className="player-right">
         {joined && (
-          <span className="source-tag netease" style={{ marginRight: 4 }}>
+          <span className="room-tag" style={{ marginRight: 4 }}>
             <IconMic size={10} /> {isHost ? '房主' : '同步中'}
           </span>
         )}

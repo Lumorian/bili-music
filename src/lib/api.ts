@@ -44,18 +44,6 @@ export const api = {
   biliQrPoll: (key: string) => call<{ code: number; message: string }>('bili_qr_poll', { key }),
   biliLogout: () => call<void>('bili_logout'),
 
-  // ---- 网易云 ----
-  neSearch: (keyword: string, page = 1) => call<Paged<Track>>('ne_search', { keyword, page }),
-  neSong: (id: string) => call<Track>('ne_song', { id }),
-  neLyric: (id: string) => call<{ lrc: string; translation: string }>('ne_lyric', { id }),
-  neToplists: () => call<{ name: string; id: string }[]>('ne_toplists'),
-  nePlaylist: (id: string) => call<{ name: string; tracks: Track[] }>('ne_playlist', { id }),
-  neMyPlaylists: () => call<{ name: string; id: string; count: number }[]>('ne_my_playlists'),
-  neMe: () => call<UserInfo>('ne_me'),
-  neQr: () => call<QrPayload>('ne_qr'),
-  neQrPoll: (key: string) => call<{ code: number; message: string }>('ne_qr_poll', { key }),
-  neLogout: () => call<void>('ne_logout'),
-
   // ---- 设置 ----
   getSettings: () => call<Settings>('get_settings'),
   saveSettings: (togetherServer?: string, nickname?: string) =>
