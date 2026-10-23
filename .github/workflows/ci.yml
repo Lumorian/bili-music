@@ -32,10 +32,16 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf
-      - name: 一起听核心库测试（离线）
+      - name: 一起听核心库测试
+        # 含 MQTT / WebSocket 端到端用例；联网用例内部自带串行锁
         run: cargo test -p bili-music-sync
+      - name: 造一个占位的前端产物
+        # tauri::generate_context!() 在**编译期**检查 frontendDist 目录是否存在，
+        # 缺失直接 panic（error: proc macro panicked）。这个 job 只做 Rust 检查，
+        # 不需要真的前端产物，放一个最小的 index.html 就够了。
+        # 注意 TAURI_SKIP_DEVSERVER_CHECK 管不了这个检查，只建目录是唯一办法。
+        run: |
+          mkdir -p dist
+          printf '<!doctype html><meta charset="utf-8"><title>placeholder</title>\n' > dist/index.html
       - name: 编译桌面端
         run: cargo check -p bili-music
-        env:
-          # 前端产物只需要存在，check 阶段不跑 build 脚本
-          TAURI_SKIP_DEVSERVER_CHECK: "true"
