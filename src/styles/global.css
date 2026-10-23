@@ -86,6 +86,10 @@ a {
   grid-template-columns: var(--sidebar-w) 1fr;
   grid-template-rows: 1fr var(--player-h);
   height: 100%;
+  /* Android 上 MainActivity 调了 enableEdgeToEdge，页面会画到状态栏/导航栏底下。
+     桌面端 env() 恒为 0，不影响；移动端把安全区补回来，否则播放条被导航栏压住。 */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: radial-gradient(1200px 600px at 12% -8%, rgba(155, 92, 255, 0.16), transparent 60%),
     radial-gradient(900px 500px at 92% 8%, rgba(255, 107, 166, 0.12), transparent 62%), var(--bg);
 }
@@ -174,8 +178,65 @@ a {
   font-weight: 600;
 }
 
-.sidebar-foot {
+.account {
   margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s;
+}
+
+.account:hover {
+  background: var(--bg-hover);
+  border-color: rgba(255, 107, 166, 0.28);
+}
+
+.account-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: var(--bg-elev-2);
+}
+
+.account-avatar-empty {
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.account-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.account-name {
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-sub {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-foot {
+  margin-top: 8px;
   padding: 10px;
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.03);
@@ -301,6 +362,15 @@ a {
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.icon-btn:active,
+.play-btn:active,
+.chip:active,
+.btn:active {
+  /* 触摸屏没有 :hover，按下时给一点反馈，否则点了像没反应 */
+  transform: scale(0.96);
+  opacity: 0.85;
 }
 
 .icon-btn {
@@ -574,23 +644,45 @@ a {
 
 .slider {
   flex: 1;
+  /* 视觉上是一条 4px 细条，但热区要 28px 高：
+     否则手机上根本点不中（桌面上靠鼠标精度还能凑合）。 */
+  height: 28px;
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+}
+
+/* 轨道 */
+.slider::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
   height: 4px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.14);
-  position: relative;
-  cursor: pointer;
   transition: height 0.12s;
 }
 
-.slider:hover {
+.slider:hover::before {
   height: 6px;
 }
 
 .slider-fill {
   position: absolute;
-  inset: 0 auto 0 0;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
   background: var(--accent-grad);
   border-radius: 3px;
+  transition: height 0.12s;
+}
+
+.slider:hover .slider-fill {
+  height: 6px;
 }
 
 .slider-thumb {
@@ -608,6 +700,15 @@ a {
 
 .slider:hover .slider-thumb {
   opacity: 1;
+}
+
+/* 触摸设备没有 hover：滑块必须常显，否则用户看不出这条能拖 */
+@media (pointer: coarse) {
+  .slider-thumb {
+    opacity: 1;
+    width: 14px;
+    height: 14px;
+  }
 }
 
 .player-right {
@@ -871,6 +972,8 @@ a {
 }
 
 .now-chapter {
+  cursor: pointer;
+  transition: background 0.12s;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -878,6 +981,15 @@ a {
   border-radius: var(--radius-sm);
   margin-bottom: 4px;
   transition: background 0.15s;
+}
+
+.now-chapter.active,
+.now-chapter.active .now-chapter-idx {
+  color: var(--accent);
+}
+
+.now-chapter.active {
+  background: rgba(255, 107, 166, 0.08);
 }
 
 .now-chapter:hover {

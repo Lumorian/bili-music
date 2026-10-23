@@ -32,6 +32,32 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": [
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-plugins-ugly",
+          "gstreamer1.0-libav",
+          "gstreamer1.0-pulseaudio",
+          "gstreamer1.0-alsa"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "gstreamer1-plugins-base",
+          "gstreamer1-plugins-good",
+          "gstreamer1-plugins-bad-free",
+          "gstreamer1-plugins-ugly-free",
+          "gstreamer1-libav",
+          "gstreamer1-plugin-pipewire"
+        ]
+      }
+    },
     "category": "Music",
     "shortDescription": "只听歌的 B 站客户端",
     "longDescription": "把 B 站视频画面整个剥掉、只保留音轨的音乐播放器，并内置不需要服务器的「一起听」房间。",

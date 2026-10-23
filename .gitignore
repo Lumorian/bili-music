@@ -9,6 +9,11 @@ target/
 src-tauri/target/
 server/target/
 
+# Windows 交叉编译用的工具链缓存（cargo-xwin 的 MSVC CRT/SDK + 本地 NSIS）
+.xwin-cache/
+.nsis/
+.tmpcache/
+
 # 本机的 Android 工具链（体积很大，不要进仓库）
 .android-sdk/
 .android-user-home/

@@ -23,19 +23,26 @@ export function Search() {
   const setQueue = usePlayer((s) => s.setQueue);
   const currentKey = queue[index] ? trackKey(queue[index]) : null;
 
+  // 请求序号：搜索接口要联网，几百毫秒里用户完全可能又敲了一次。
+  // 只认最后一次，否则会出现「搜索结果和关键词对不上」。
+  const seqRef = useRef(0);
+
   const run = useCallback(async (kw: string, pg: number, replace: boolean) => {
     if (!kw.trim()) return;
+    const seq = ++seqRef.current;
     setLoading(true);
     setError('');
     try {
       const res = await api.biliSearch(kw, pg);
+      if (seq !== seqRef.current) return;
       setTracks((prev) => (replace ? res.items : [...prev, ...res.items]));
       setHasMore(res.has_more);
       setPage(pg);
     } catch (e) {
+      if (seq !== seqRef.current) return;
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (seq === seqRef.current) setLoading(false);
     }
   }, []);
 

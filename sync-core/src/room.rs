@@ -78,7 +78,8 @@ impl Room {
         self.last_active = now;
     }
 
-    pub fn snapshot(&self) -> RoomSnapshot {
+    /// 成员列表（房主排最前，其余按名字稳定排序）
+    pub fn member_list(&self) -> Vec<MemberInfo> {
         let mut members: Vec<MemberInfo> = self
             .members
             .values()
@@ -91,8 +92,12 @@ impl Room {
                 playing: m.playing,
             })
             .collect();
-        // 房主排在最前，其他人按名字稳定排序
         members.sort_by(|a, b| b.is_host.cmp(&a.is_host).then(a.name.cmp(&b.name)));
+        members
+    }
+
+    pub fn snapshot(&self) -> RoomSnapshot {
+        let members = self.member_list();
 
         let mut state = self.state.clone();
         // 起播前 / 未起播时不当心算，避免 duration 为 0 的歌报出怪异进度
@@ -193,6 +198,9 @@ pub fn apply_client_msg(room: &mut Room, member_id: &str, msg: crate::protocol::
                 m.playing = playing;
             }
             room.last_active = now_ms();
+            // 只广播成员列表，别把整个队列再发一遍：这是每 4 秒一次的高频包
+            let members = room.member_list();
+            let _ = room.tx.send(crate::protocol::ServerMsg::Members { members });
         }
         ClientMsg::SetQueue { queue, index } => {
             room.queue = queue;
@@ -253,6 +261,15 @@ pub fn apply_client_msg(room: &mut Room, member_id: &str, msg: crate::protocol::
             let name = room.members.get(member_id).map(|m| m.name.clone()).unwrap_or_default();
             room.broadcast_chat(member_id, &name, &text);
         }
+        ClientMsg::Leave => {
+            room.members.remove(member_id);
+            if room.host_id == member_id {
+                // 房主走了：交给房间里的下一个人
+                room.host_id = room.members.keys().next().cloned().unwrap_or_default();
+            }
+            room.last_active = now_ms();
+            room.broadcast_room();
+        }
         ClientMsg::TransferHost { member_id: target } => {
             if room.host_id == member_id && room.members.contains_key(&target) {
                 room.host_id = target;
@@ -260,9 +277,12 @@ pub fn apply_client_msg(room: &mut Room, member_id: &str, msg: crate::protocol::
             }
         }
         ClientMsg::Kick { member_id: target } => {
-            if room.host_id == member_id && target != member_id {
+            if room.host_id == member_id && target != member_id && room.members.contains_key(&target) {
                 room.members.remove(&target);
-                let _ = room.tx.send(crate::protocol::ServerMsg::Kicked { reason: "被房主移出房间".into() });
+                let _ = room.tx.send(crate::protocol::ServerMsg::Kicked {
+                    member_id: target.clone(),
+                    reason: "被房主移出房间".into(),
+                });
                 room.broadcast_room();
             }
         }

@@ -46,7 +46,14 @@ export function TrackRow({ track, index, active, onRemove, removable }: Props) {
           ''
         )}
       </div>
-      <img className="track-cover" src={track.cover} alt="" loading="lazy" draggable={false} />
+      <img
+        className="track-cover"
+        src={track.cover}
+        alt=""
+        loading="lazy"
+        draggable={false}
+        referrerPolicy="no-referrer"
+      />
       <div className="track-main">
         <div className="track-title">
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</span>

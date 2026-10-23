@@ -56,6 +56,7 @@ pub fn to_json_event(ev: SyncEvent) -> Value {
             "by": by,
         }),
         SyncEvent::Queue { queue, index } => json!({ "kind": "queue", "queue": queue, "index": index }),
+        SyncEvent::Members(members) => json!({ "kind": "members", "members": members }),
         SyncEvent::Chat { from, name, text, at } => json!({
             "kind": "chat",
             "from": from,
@@ -192,6 +193,13 @@ pub async fn send(state: &SharedTogether, msg: ClientMsg) -> AppResult<()> {
 }
 
 pub async fn leave(state: &SharedTogether) -> AppResult<()> {
+    {
+        let guard = state.transport.lock().await;
+        // 云房间：房主广播"房主已离开"，成员告诉房主"我走了"
+        if let Some(Transport::Cloud(c)) = guard.as_ref() {
+            c.shutdown();
+        }
+    }
     *state.transport.lock().await = None;
     *state.room.lock().await = None;
     *state.self_id.lock().await = String::new();
@@ -206,10 +214,18 @@ pub async fn push_queue(
     send(state, ClientMsg::SetQueue { queue, index }).await
 }
 
-/// 当前是不是房主（云模式下只有房主能踢人 / 移交）
+/// 当前是不是房主（云模式下只有房主能踢人 / 移交）。
+///
+/// 不能只看连接建立时的 `is_host`：房主可以中途把房主身份交出去，
+/// 交完之后原来那台机器仍然连着同一个房间，但已经不是房主了。
+/// 以房间快照里的 `host_id` 为准，两种传输方式都一样。
 pub async fn am_host(state: &SharedTogether) -> bool {
-    let guard = state.transport.lock().await;
-    matches!(guard.as_ref(), Some(Transport::Cloud(c)) if c.is_host)
+    let room = state.room.lock().await.clone();
+    let self_id = state.self_id.lock().await.clone();
+    match room {
+        Some(r) if !self_id.is_empty() => r.host_id == self_id,
+        _ => false,
+    }
 }
 
 pub fn default_server() -> String {

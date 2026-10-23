@@ -25,6 +25,24 @@ pub struct CloudLink {
     pub is_host: bool,
     /// 房主：把操作投给本地状态机；成员：直接把操作发到 broker
     to_host: Option<UnboundedSender<(String, ClientMsg)>>,
+    /// 房主退出时用它停掉后台状态机，并通知房间里其他人
+    close: Option<tokio::sync::watch::Sender<bool>>,
+}
+
+impl CloudLink {
+    /// 主动离开：房主要广播"房主已离开"并停掉后台循环；
+    /// 成员要告诉房主"我走了"，否则成员列表会留下幽灵条目。
+    pub fn shutdown(&self) {
+        match &self.close {
+            Some(tx) => {
+                announce_host_left(&self.conn, &self.topic);
+                let _ = tx.send(true);
+            }
+            None => {
+                self.conn.publish(&self.topic, &cloud::leave_envelope(&self.self_id));
+            }
+        }
+    }
 }
 
 impl CloudLink {
@@ -68,7 +86,8 @@ pub async fn host(
     );
 
     let conn = Arc::new(conn);
-    let host = cloud::spawn_host_loop(room, conn.clone(), topic.clone(), inbox);
+    let (close_tx, close_rx) = tokio::sync::watch::channel(false);
+    let host = cloud::spawn_host_loop_controlled(room, conn.clone(), topic.clone(), inbox, close_rx);
 
     let (ev_tx, ev_rx) = unbounded_channel::<SyncEvent>();
     // 一上来先给前端一份快照，UI 才能立刻显示房间号与成员
@@ -103,6 +122,7 @@ pub async fn host(
             self_id,
             is_host: true,
             to_host: Some(host.cmd_tx),
+            close: Some(close_tx),
         },
         ev_rx,
     ))
@@ -126,21 +146,40 @@ pub async fn join(
 
     let ev_tx_task = ev_tx.clone();
     let self_id_task = self_id.clone();
+    let conn_task = conn.clone();
+    let topic_task = topic.clone();
+    let name_task = name.to_string();
+    let avatar_task = avatar.to_string();
     tauri::async_runtime::spawn(async move {
-        // 5 秒内没收到 Welcome 就明确告诉用户「房间号可能不对或房主不在」
-        let welcome_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(6);
+        // 公共 broker 是 QoS 0，Hello 有可能丢。收不到 Welcome 就每隔 3 秒重发一次，
+        // 累计 15 秒还没回应才判定「房间号不对 / 房主不在」。
         let mut welcomed = false;
+        let mut attempts = 0u32;
         loop {
             let next = if welcomed {
                 inbox.recv().await
             } else {
-                match tokio::time::timeout_at(welcome_deadline, inbox.recv()).await {
+                let wait = tokio::time::Duration::from_secs(3);
+                match tokio::time::timeout(wait, inbox.recv()).await {
                     Ok(v) => v,
                     Err(_) => {
-                        let _ = ev_tx_task.send(SyncEvent::Disconnected {
-                            reason: "没有收到房主的回应，检查房间号，或房主已离开".into(),
-                        });
-                        break;
+                        attempts += 1;
+                        if attempts >= 5 {
+                            let _ = ev_tx_task.send(SyncEvent::Disconnected {
+                                reason: "没有收到房主的回应，检查房间号，或房主已离开".into(),
+                            });
+                            break;
+                        }
+                        // 重发打招呼
+                        conn_task.publish(
+                            &topic_task,
+                            &cloud::encode(&Envelope::Hello {
+                                from: self_id_task.clone(),
+                                name: name_task.clone(),
+                                avatar: avatar_task.clone(),
+                            }),
+                        );
+                        continue;
                     }
                 }
             };
@@ -161,6 +200,11 @@ pub async fn join(
                     }
                 }
                 Envelope::Server { msg } => {
+                    // 广播里不会有 Kicked（房主改成 Direct 单发了），
+                    // 万一收到也忽略，别把全房间踢下线。
+                    if matches!(msg, ServerMsg::Kicked { .. }) {
+                        continue;
+                    }
                     if let Some(ev) = server_msg_to_event(msg) {
                         if ev_tx_task.send(ev).is_err() {
                             break;
@@ -175,8 +219,6 @@ pub async fn join(
                 }
                 _ => {}
             }
-            // 收到了任何广播就算"房间是活的"
-            welcomed = true;
         }
     });
 
@@ -188,6 +230,7 @@ pub async fn join(
             self_id,
             is_host: false,
             to_host: None,
+            close: None,
         },
         ev_rx,
     ))
@@ -198,6 +241,7 @@ fn server_msg_to_event(msg: ServerMsg) -> Option<SyncEvent> {
     match msg {
         ServerMsg::Welcome { self_id, room } => Some(SyncEvent::Connected { self_id, room }),
         ServerMsg::Room(room) => Some(SyncEvent::Room(room)),
+        ServerMsg::Members { members } => Some(SyncEvent::Members(members)),
         ServerMsg::State { state, server_time } => Some(SyncEvent::State {
             index: state.index,
             position_ms: state.position_ms,
@@ -207,7 +251,9 @@ fn server_msg_to_event(msg: ServerMsg) -> Option<SyncEvent> {
         }),
         ServerMsg::Queue { queue, index } => Some(SyncEvent::Queue { queue, index }),
         ServerMsg::Chat { from, name, text, at } => Some(SyncEvent::Chat { from, name, text, at }),
-        ServerMsg::Kicked { reason } => Some(SyncEvent::Disconnected { reason }),
+        // 云房间下 Kicked 只以 Direct 形式发给目标成员，
+        // join 循环已按 to == self 过滤，这里不会再误伤别人。
+        ServerMsg::Kicked { reason, .. } => Some(SyncEvent::Disconnected { reason }),
         ServerMsg::Error { message } => Some(SyncEvent::Error { message }),
         ServerMsg::Pong { .. } => None,
     }

@@ -14,6 +14,7 @@ import { Settings } from './pages/Settings';
 import { usePlayer } from './store/player';
 import { useTogether } from './store/together';
 import { useLibrary } from './store/library';
+import { useAccount } from './store/account';
 import { syncFromState } from './lib/audio';
 import { api } from './lib/api';
 import { MOCK_ENABLED } from './lib/mock';
@@ -130,23 +131,35 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      // 一起听时快捷键也要走房间，否则只改本地状态，下一次服务器广播就被打回去
+      const t = useTogether.getState();
+      const inRoom = t.joined && t.connected;
       if (e.code === 'Space') {
         e.preventDefault();
-        usePlayer.getState().toggle();
+        if (inRoom) {
+          const p = usePlayer.getState();
+          void api.togetherSetPlaying(!p.playing, Math.round(p.position)).catch(() => {});
+        } else {
+          usePlayer.getState().toggle();
+        }
       } else if (e.code === 'ArrowRight' && e.shiftKey) {
-        usePlayer.getState().next();
+        if (inRoom) void api.togetherNext().catch(() => {});
+        else usePlayer.getState().next();
       } else if (e.code === 'ArrowLeft' && e.shiftKey) {
-        usePlayer.getState().prev();
+        if (inRoom) void api.togetherPrev().catch(() => {});
+        else usePlayer.getState().prev();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const refreshAccount = useAccount((s) => s.refresh);
   const onLoginSuccess = useCallback(() => {
     setLogin(false);
+    void refreshAccount();
     setReloadKey((n) => n + 1);
-  }, []);
+  }, [refreshAccount]);
 
   const body = () => {
     switch (page) {
@@ -167,7 +180,7 @@ export function App() {
 
   return (
     <div className="app">
-      <Sidebar page={page} onNavigate={setPage} version={version} />
+      <Sidebar page={page} onNavigate={setPage} onLogin={() => setLogin(true)} version={version} />
 
       <main className="main">
         <div key={`${page}-${reloadKey}`}>{body()}</div>

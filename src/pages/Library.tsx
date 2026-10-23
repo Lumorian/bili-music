@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { trackKey } from '../lib/format';
 import type { Track } from '../lib/types';
 import { TrackRow } from '../components/TrackRow';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useAccount } from '../store/account';
 import { toast } from '../components/Toast';
 
 interface Folder {
@@ -20,8 +21,10 @@ export function Library({ onLogin }: { onLogin: () => void }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderTracks, setFolderTracks] = useState<Track[]>([]);
   const [activeFolder, setActiveFolder] = useState<number | null>(null);
-  const [loggedBili, setLoggedBili] = useState(false);
   const [loading, setLoading] = useState(false);
+  const account = useAccount((s) => s.user);
+  const refreshAccount = useAccount((s) => s.refresh);
+  const loggedBili = !!account?.logged_in;
 
   const favorites = useLibrary((s) => s.favorites);
   const recent = useLibrary((s) => s.recent);
@@ -31,27 +34,43 @@ export function Library({ onLogin }: { onLogin: () => void }) {
   const currentKey = queue[index] ? trackKey(queue[index]) : null;
 
   useEffect(() => {
-    api
-      .biliMe()
-      .then((me) => {
-        setLoggedBili(me.logged_in);
-        if (me.logged_in) {
-          return api.biliFavFolders().then((f) => setFolders(f ?? []));
-        }
-      })
-      .catch(() => {});
-  }, []);
+    void refreshAccount();
+  }, [refreshAccount]);
 
+  // 登录态变化后再拉收藏夹，避免"登录成功但列表还是空"
+  useEffect(() => {
+    if (!loggedBili) {
+      setFolders([]);
+      return;
+    }
+    let alive = true;
+    api
+      .biliFavFolders()
+      .then((f) => {
+        if (alive) setFolders(f ?? []);
+      })
+      .catch((e) => toast((e as Error).message, 'error'));
+    return () => {
+      alive = false;
+    };
+  }, [loggedBili]);
+
+  // 切收藏夹也是有网络的，连点两个文件夹时旧请求晚回来会串场
+  const folderSeq = useRef(0);
   const openFolder = async (f: Folder) => {
+    const seq = ++folderSeq.current;
     setActiveFolder(f.id);
     setLoading(true);
+    setFolderTracks([]);
     try {
       const res = await api.biliFavList(f.id, 1);
+      if (seq !== folderSeq.current) return;
       setFolderTracks(res.items);
     } catch (e) {
+      if (seq !== folderSeq.current) return;
       toast((e as Error).message, 'error');
     } finally {
-      setLoading(false);
+      if (seq === folderSeq.current) setLoading(false);
     }
   };
 

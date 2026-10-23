@@ -16,12 +16,22 @@ export function QrLogin({ open, onClose, onSuccess }: Props) {
   const keyRef = useRef('');
   const doneRef = useRef(false);
   const [status, setStatus] = useState('');
+  const [qrError, setQrError] = useState('');
+
+  // 回调放进 ref：父组件的 onClose / onSuccess 每次渲染都是新函数，
+  // 如果把它们写进轮询 effect 的依赖里，轮询定时器会被不停地销毁重建，
+  // 结果就是「扫了码也永远轮询不到成功」。
+  const onCloseRef = useRef(onClose);
+  const onSuccessRef = useRef(onSuccess);
+  onCloseRef.current = onClose;
+  onSuccessRef.current = onSuccess;
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     doneRef.current = false;
     keyRef.current = '';
+    setQrError('');
     setStatus('正在生成二维码…');
 
     const generate = async () => {
@@ -39,7 +49,11 @@ export function QrLogin({ open, onClose, onSuccess }: Props) {
         }
         setStatus('请用 B 站手机客户端扫码');
       } catch (e) {
-        if (!cancelled) setStatus((e as Error).message);
+        if (!cancelled) {
+          const msg = (e as Error).message;
+          setQrError(msg);
+          setStatus('二维码生成失败');
+        }
       }
     };
     void generate();
@@ -51,27 +65,36 @@ export function QrLogin({ open, onClose, onSuccess }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    let stopped = false;
     const id = window.setInterval(async () => {
       const key = keyRef.current;
-      if (!key || doneRef.current) return;
+      if (!key || doneRef.current || stopped) return;
       try {
         const res = await api.biliQrPoll(key);
+        if (stopped) return;
         if (res.code === 0) {
           doneRef.current = true;
           toast('B 站登录成功');
-          onSuccess();
-          onClose();
+          onSuccessRef.current();
+          onCloseRef.current();
         } else if (res.code === 86090) {
           setStatus('已扫码，请在手机上确认');
         } else if (res.code === 86038) {
           setStatus('二维码已过期，关闭后重新打开');
+        } else if (res.code === 86101) {
+          setStatus('请用 B 站手机客户端扫码');
+        } else if (res.code !== 0) {
+          setStatus(res.message || '等待扫码…');
         }
       } catch {
         /* 网络抖动忽略，下一轮再试 */
       }
     }, 2000);
-    return () => window.clearInterval(id);
-  }, [open, onClose, onSuccess]);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -91,6 +114,9 @@ export function QrLogin({ open, onClose, onSuccess }: Props) {
           <canvas ref={canvasRef} />
         </div>
         <p className="hint" style={{ marginBottom: 0 }}>{status}</p>
+        {qrError && (
+          <p className="hint" style={{ marginBottom: 0, color: 'var(--danger)' }}>{qrError}</p>
+        )}
       </div>
     </div>
   );

@@ -156,6 +156,14 @@ export const useTogether = create<TogetherState>((set, get) => ({
         // 自己不在成员列表里说明被踢了
         joined: prev ? room.members.some((m) => m.id === get().selfId) : true,
       });
+      // 云模式下 amHost 是后端判定的，房主移交 / 被别人移交后要刷一次，
+      // 否则"踢人 / 移交房主"这些按钮会一直挂在不该挂的人身上
+      if (get().mode === 'cloud') {
+        void api
+          .togetherAmHost()
+          .then((h) => set({ amHost: h }))
+          .catch(() => {});
+      }
       return;
     }
     if (kind === 'state') {
@@ -181,6 +189,13 @@ export const useTogether = create<TogetherState>((set, get) => ({
       const room = get().room;
       if (!room) return;
       set({ room: { ...room, queue: ev.queue, state: { ...room.state, index: ev.index } } });
+      return;
+    }
+    if (kind === 'members') {
+      // 成员进度心跳：只更新成员列表，不动队列/播放状态
+      const room = get().room;
+      if (!room) return;
+      set({ room: { ...room, members: ev.members } });
       return;
     }
     if (kind === 'chat') {

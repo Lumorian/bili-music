@@ -29,6 +29,7 @@ BiliMusic 做的事情很简单也很彻底：
 | B 站 | 音乐区/演奏/翻唱/原创/VOCALOID 等分区排行、关键词搜索、相关推荐、收藏夹、稍后再看、扫码登录 |
 | 播放 | 纯音频流、本地代理（补 Referer / 透传 Range 支持秒拖进度）、顺序/循环/单曲/随机、音量、全局快捷键（空格、Shift+←/→） |
 | 一起听 | 云房间（无需服务器，走公共 MQTT 通道）与自建服务器两种模式；队列同步、播放状态同步（带服务器时间补偿）、成员进度小条、房主移交、踢人、房间聊天 |
+| 账号 | 侧边栏常驻账号入口（头像/昵称/未登录提示），扫码登录、退出登录；登录态以 `SESSDATA` 为准，风控导致的 `nav` 失败不会把用户误判为未登录 |
 | 其它 | 本地收藏与最近播放、深色 UI、窄屏/手机自适应布局 |
 
 ## 架构
@@ -88,11 +89,13 @@ npm run sync:server      # 顺便起一个一起听房间服务器
 
 | 文件 | 用途 |
 | --- | --- |
-| `BiliMusic_0.1.0_amd64.deb` | Debian / Ubuntu（3.4 MB） |
-| `BiliMusic-0.1.0-1.x86_64.rpm` | Fedora / openSUSE（3.4 MB） |
-| `BiliMusic_0.1.0_amd64.AppImage` | 免安装，自带依赖（103 MB） |
+| `BiliMusic_0.1.0_amd64.deb` | Debian / Ubuntu（3.4 MB，已声明 GStreamer 依赖） |
+| `BiliMusic-0.1.0-1.x86_64.rpm` | Fedora / openSUSE（3.4 MB，已声明 GStreamer 依赖） |
+| `BiliMusic_0.1.0_amd64.AppImage` | 免安装，自带依赖（含 GStreamer 音频插件，约 157 MB） |
 | `bili-music-0.1.0-linux-x86_64` | 裸二进制（7.4 MB） |
 | `BiliMusic_0.1.0_arm64.apk` | Android arm64（11 MB，release 已签名） |
+| `BiliMusic_0.1.0_x64-setup.exe` | Windows 安装包（NSIS，3 MB） |
+| `bili-music-0.1.0-windows-x64.exe` | Windows 免安装单文件（9.7 MB） |
 | `bili-music-sync-server` | 自建一起听服务器（2 MB） |
 
 单独打包：
@@ -100,8 +103,36 @@ npm run sync:server      # 顺便起一个一起听房间服务器
 ```bash
 npx tauri build --bundles deb              # 只出 deb
 npx tauri build --bundles appimage         # 只出 AppImage
+npx tauri build --bundles nsis             # 只出 Windows 安装包（需在 Windows 上跑）
 npx tauri android build --apk --target aarch64   # 只出 APK
 ```
+
+### 在 Linux 上交叉编译 Windows 安装包（`./scripts/build-windows.sh`）
+
+```bash
+./scripts/build-windows.sh
+```
+
+Tauri 2 支持 `--runner cargo-xwin`：xwin 会拉微软官方的 MSVC CRT/SDK，用 `lld-link` 链接，
+**不需要装 Visual Studio，也不需要 wine**，最后用 NSIS 打出 `.exe` 安装包。
+
+脚本里已经处理了这台机器的三个坑：
+
+1. `$HOME` 只读 → `XWIN_CACHE_DIR` / `XDG_CACHE_HOME` 都改到仓库内部；
+2. Tauri 在非 Windows 主机上直接调 PATH 里的 `makensis`（并且会 `env_remove("NSISDIR")`），
+   所以自备了一份 NSIS 3.12 并包了一层 wrapper 自己设 `NSISDIR`（放在 `.nsis/sys/`，已 gitignore）。
+3. 打 NSIS 包前，Tauri 要往它的 NSIS 目录里塞一个插件 `nsis_tauri_utils.dll`，
+   而这个文件**只会从 GitHub Releases 下载**。直连不通时，编译到最后一步才报
+   `failed to bundle project: io: peer closed connection without sending TLS close_notify`。
+   脚本现在会先自己取一份、**校验 SHA1**（`75197fee…`，与 tauri-cli 内置期望值一致）再交给它，
+   官方地址失败就依次换镜像（ghproxy / gh-proxy / ghfast）。
+   - 想完全离线：把这个 dll 放进 `.tmpcache/tauri/nsis/Plugins/x86-unicode/additional/`，
+     然后 `BILIMUSIC_OFFLINE=1 ./scripts/build-windows.sh`。
+   - 所有镜像都失败时，脚本会打印手动放置路径并以非 0 退出，不会闷头失败。
+
+> 注意：产物没有代码签名（`sign_command` 只在 Windows 主机上生效），
+> 首次运行会被 SmartScreen 拦一下，需要点「更多信息 → 仍要运行」。
+> 也由于是交叉编译，**未能在真实 Windows 上跑过**，仅验证了 PE 结构、DLL 导入和嵌入的前端资源。
 
 > release APK 的签名密钥放在 `.android-keys/`（已 gitignore）。
 > 首次生成：`keytool -genkeypair -keystore .android-keys/bilimusic.jks -alias bilimusic \
@@ -196,9 +227,10 @@ source scripts/android-env.sh   # 把 SDK / NDK / rustup / gradle 塞进当前 s
 
 ```bash
 npx tsc --noEmit                                     # 前端类型检查
-cargo test -p bili-music-sync                        # 房间状态机（离线）
+cargo test -p bili-music-sync                        # 房间状态机 + MQTT + ws 端到端
 cargo test -p bili-music --test proxy                # 本地代理（离线）
-cargo test -p bili-music --test live -- --nocapture  # 联网冒烟（B 站）
+cargo test -p bili-music --test live -- --nocapture  # 联网冒烟（B 站 + 代理取真实音频字节）
+cargo test --workspace                               # 全部；联网用例内部自带串行锁，不会被风控
 ```
 
 ## 已知限制
@@ -206,7 +238,50 @@ cargo test -p bili-music --test live -- --nocapture  # 联网冒烟（B 站）
 - **B 站没有歌词接口**（多数视频也没有字幕），所以正在播放页展示的是
   视频简介和分 P 列表，而不是歌词。
 - 一起听的房间状态保存在内存里，服务器重启后房间会消失（单机场景够用）。
-- 官方接口随时可能调整风控（`-352`），代码里已做密钥失效自动重试，但仍需自行承担风险。
+- 官方接口随时可能调整风控（`-352`）。程序里的应对是分层的：自动申请并持久化
+  `buvid3/buvid4` 设备指纹（缺失时 `ranking` 必被风控）、签名失效自动换密钥、
+  风控时退避重试，最后还有 `ranking/region` 老接口兜底。即便如此仍可能偶发失败。
+- **Linux 播放依赖系统的 GStreamer 音频插件**。WebKitGTK 的 `<audio>` 走 GStreamer，
+  插件缺失时不只是没声音 —— 给 `audio.src` 赋值会直接让 WebProcess abort，
+  表现是「一点播放整个窗口就消失」。
+  - 用 deb/rpm 安装时依赖已声明，正常装包就会带上；
+  - 用 AppImage 时已开启 `bundleMediaFramework`（体积会大 30MB 左右）；
+  - 裸二进制运行需要自备：Debian/Ubuntu `gstreamer1.0-plugins-{base,good,bad,ugly} gstreamer1.0-libav`，
+    Arch `gst-plugins-{base,good,bad,ugly} gst-libav`。
+  - 前端启动时会用 `canPlayType` 探测一次解码能力，缺失时只弹提示、绝不碰 audio 元素，
+    不会再崩。（设置页「关于」里能看到「音频解码后端：可用/缺失」。）
+
+- **Windows（WebView2）与 Linux（WebKitGTK）的差异**：页面源一个是 `http://tauri.localhost`、
+  一个是 `tauri://localhost`。前者会往图床请求里带 `Referer`（被 B 站 403，封面全灰），
+  后者不带。所以 `index.html` 全局 `no-referrer`、所有 `<img>` 也各自声明了一遍。
+  同样地，Chromium 的 Private Network Access 规则会让"页面 → 127.0.0.1 代理"多一次预检，
+  本地代理已经显式应答，详情见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#windows-上的两个坑)。
+
+## 三个平台的差异（踩过的坑都在这）
+
+| | Windows | Linux | Android |
+| --- | --- | --- | --- |
+| WebView | WebView2（Chromium） | WebKitGTK | 系统 WebView（Chromium） |
+| 页面源 | `http://tauri.localhost` | `tauri://localhost` | `http://tauri.localhost` |
+| 图片 Referer | 会带 → B 站图床 403 | 不带 → 正常 | 会带 → 403 |
+| 明文 HTTP | 允许 | 允许 | release 默认**禁止**（含 loopback） |
+| 音频解码 | 系统自带 | 依赖 GStreamer 插件 | 系统 WebView |
+
+对应的处理：
+
+- **图片**：`index.html` 里有 `<meta name="referrer" content="no-referrer">`，每个
+  `<img>` 也各自带 `referrerPolicy="no-referrer"`（不依赖全局设置）。
+- **明文 HTTP**：`res/xml/network_security_config.xml` 只对 `127.0.0.1 / localhost / ::1 /
+  10.0.2.2` 放开，公网仍然强制 HTTPS。否则 release 包上"本地音频代理"会被系统拦掉，
+  表现是**开发包能放、正式包一按播放就报错**。
+- **音频解码**：探测时同时问 AAC(mp4a) 和 Opus(webm)，避免个别 Android WebView
+  只报 webm 就被误判成"没有解码后端"。
+- **本地代理**：补了 CORS 预检和 `Access-Control-Allow-Private-Network`
+  （Chromium 的 Private Network Access 规则），`<audio>` 也不再设 `crossOrigin`。
+- **安全区**：Android 用了 `enableEdgeToEdge`，`.app` 上用 `env(safe-area-inset-*)`
+  把状态栏/导航栏的位置让出来，否则播放条会被压住。
+- **手势**：进度条/音量条在触摸设备上要 `touch-action: none` + 28px 热区，
+  滑块常显（`@media (pointer: coarse)`），不然手机上根本拖不动。
 
 ## 免责声明
 

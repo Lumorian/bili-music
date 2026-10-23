@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import type { Track } from '../lib/types';
 import { TrackList } from '../components/TrackRow';
@@ -37,22 +37,23 @@ export function Home({ onGoSearch }: { onGoSearch: () => void }) {
 
   const currentKey = queue[index] ? trackKey(queue[index]) : null;
 
+  // 切分区时旧榜单晚回来会覆盖新分区的结果
+  const seqRef = useRef(0);
   useEffect(() => {
-    let alive = true;
+    const seq = ++seqRef.current;
     setLoading(true);
     setError('');
     api
       .biliRanking(region, 1)
       .then((page) => {
-        if (alive) setTracks(page.items);
+        if (seq === seqRef.current) setTracks(page.items);
       })
       .catch((e) => {
-        if (alive) setError((e as Error).message);
+        if (seq === seqRef.current) setError((e as Error).message);
       })
-      .finally(() => alive && setLoading(false));
-    return () => {
-      alive = false;
-    };
+      .finally(() => {
+        if (seq === seqRef.current) setLoading(false);
+      });
   }, [region]);
 
   return (

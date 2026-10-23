@@ -26,6 +26,9 @@ fn file_path() -> Option<PathBuf> {
 pub struct Session {
     /// B 站 Cookie 串，形如 "SESSDATA=xx; bili_jct=yy; DedeUserID=zz"
     pub bilibili_cookie: String,
+    /// 设备指纹 buvid3/buvid4：没有它 ranking 等接口会直接返回 -352 风控
+    pub buvid3: String,
+    pub buvid4: String,
     pub bilibili_name: String,
     pub bilibili_avatar: String,
     /// 同步服务器地址（一起听）
@@ -34,6 +37,24 @@ pub struct Session {
 }
 
 impl Session {
+    /// 有 SESSDATA 就认为登录过（昵称/头像是次要信息，拉不到不影响功能）
+    pub fn has_login(&self) -> bool {
+        self.bilibili_cookie.split(';').any(|kv| kv.trim().starts_with("SESSDATA=") && kv.len() > 12)
+    }
+
+    /// 从 cookie 串里取某个键的值
+    pub fn cookie_value(&self, key: &str) -> Option<String> {
+        self.bilibili_cookie.split(';').find_map(|kv| {
+            let mut it = kv.trim().splitn(2, '=');
+            let k = it.next()?.trim();
+            if k.eq_ignore_ascii_case(key) {
+                Some(it.next().unwrap_or("").trim().to_string())
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn load() -> Self {
         let Some(p) = file_path() else { return Self::default() };
         std::fs::read_to_string(p)

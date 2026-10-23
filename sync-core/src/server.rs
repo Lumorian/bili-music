@@ -121,10 +121,14 @@ async fn handle_socket(socket: WebSocket, st: ServerState, code: String, q: WsQu
     });
 
     // 转发广播给本连接
+    let me = self_id.clone();
     let mut send_task = tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(msg) => {
+                    // 服务器是广播模型：Kicked 人人都收得到，
+                    // 只有"踢的是我"这一条才意味着本连接该断。
+                    let kicked_me = matches!(&msg, ServerMsg::Kicked { member_id, .. } if *member_id == me);
                     match serde_json::to_string(&msg) {
                         Ok(txt) => {
                             if sink.send(Message::Text(txt.into())).await.is_err() {
@@ -132,6 +136,9 @@ async fn handle_socket(socket: WebSocket, st: ServerState, code: String, q: WsQu
                             }
                         }
                         Err(_) => continue,
+                    }
+                    if kicked_me {
+                        break;
                     }
                 }
                 Err(RecvError::Lagged(_)) => continue,

@@ -18,6 +18,8 @@ pub enum SyncEvent {
     Room(RoomSnapshot),
     State { index: usize, position_ms: u64, playing: bool, server_time: u64, by: String },
     Queue { queue: Vec<crate::model::Track>, index: usize },
+    /// 成员进度变化（高频，只带成员列表）
+    Members(Vec<crate::protocol::MemberInfo>),
     Chat { from: String, name: String, text: String, at: u64 },
     Disconnected { reason: String },
     Error { message: String },
@@ -147,6 +149,9 @@ pub async fn join(
     // 读方向：把服务器帧翻译成事件
     let handle_tx = in_tx.clone();
     tokio::spawn(async move {
+        // 服务器是广播模型，Kicked 会发给房间里所有人，
+        // 所以必须记住自己的 id，只对"踢的是我"有反应。
+        let mut self_id: Option<String> = None;
         while let Some(frame) = stream.next().await {
             let Ok(frame) = frame else { break };
             let text = match frame {
@@ -156,7 +161,10 @@ pub async fn join(
             };
             let Ok(msg) = serde_json::from_str::<ServerMsg>(&text) else { continue };
             let ev = match msg {
-                ServerMsg::Welcome { self_id, room } => SyncEvent::Connected { self_id, room },
+                ServerMsg::Welcome { self_id: me, room } => {
+                    self_id = Some(me.clone());
+                    SyncEvent::Connected { self_id: me, room }
+                }
                 ServerMsg::Room(room) => SyncEvent::Room(room),
                 ServerMsg::State { state, server_time } => SyncEvent::State {
                     index: state.index,
@@ -166,9 +174,14 @@ pub async fn join(
                     by: state.by,
                 },
                 ServerMsg::Queue { queue, index } => SyncEvent::Queue { queue, index },
+                ServerMsg::Members { members } => SyncEvent::Members(members),
                 ServerMsg::Chat { from, name, text, at } => SyncEvent::Chat { from, name, text, at },
                 ServerMsg::Error { message } => SyncEvent::Error { message },
-                ServerMsg::Kicked { reason } => {
+                ServerMsg::Kicked { member_id, reason } => {
+                    // 踢的不是我：忽略（否则房主踢人时房主自己会掉线）
+                    if self_id.as_deref() != Some(member_id.as_str()) {
+                        continue;
+                    }
                     let _ = out_tx.send(SyncEvent::Disconnected { reason });
                     break;
                 }

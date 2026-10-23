@@ -32,6 +32,9 @@ pub struct ProxyState {
 }
 
 static STATE: OnceLock<ProxyState> = OnceLock::new();
+/// 串行化启动流程：测试里两个用例、或者前端首屏并发调用时，
+/// 不能让它们各自 bind 一个端口（否则 register 会拿到 port=0 的实例）。
+static START_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn state() -> &'static ProxyState {
     STATE.get_or_init(ProxyState::default)
@@ -106,7 +109,9 @@ async fn proxy_stream(
                     .header("Content-Type", mime_of(&entry))
                     .header("Accept-Ranges", "bytes")
                     .header("Cache-Control", "no-store")
-                    .header("Access-Control-Allow-Origin", "*");
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Expose-Headers", "content-length, content-range, accept-ranges, etag")
+                    .header("Access-Control-Allow-Private-Network", "true");
                 for h in ["content-length", "content-range", "etag", "last-modified"] {
                     if let Some(v) = resp.headers().get(h).and_then(|v| v.to_str().ok()) {
                         if let Ok(hv) = HeaderValue::from_str(v) {
@@ -125,6 +130,29 @@ async fn proxy_stream(
     (StatusCode::BAD_GATEWAY, format!("upstream unreachable: {last_err}")).into_response()
 }
 
+/// CORS 预检。
+///
+/// 现在的 <audio> 是 no-CORS 请求，本来用不上；但 Windows 的 WebView2 会跟着
+/// Chromium 的 Private Network Access 规则，对"页面源 → 127.0.0.1"这类
+/// 本地地址的请求做预检。少一个 204 就会表现成「地址拿到了但一播就 error」，
+/// 所以这里直接给全，省得以后又踩。
+async fn preflight() -> Response {
+    (
+        StatusCode::NO_CONTENT,
+        [
+            ("access-control-allow-origin", "*"),
+            ("access-control-allow-methods", "GET, HEAD, OPTIONS"),
+            ("access-control-allow-headers", "range, accept, origin, content-type"),
+            ("access-control-expose-headers", "content-length, content-range, accept-ranges, etag"),
+            ("access-control-max-age", "86400"),
+            // Private Network Access：允许跨到 loopback
+            ("access-control-allow-private-network", "true"),
+            ("access-control-allow-credentials", "false"),
+        ],
+    )
+        .into_response()
+}
+
 async fn health() -> &'static str {
     "ok"
 }
@@ -132,7 +160,7 @@ async fn health() -> &'static str {
 fn build_router(state: ProxyState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/stream/{token}", get(proxy_stream))
+        .route("/stream/{token}", get(proxy_stream).options(preflight))
         .with_state(state)
 }
 
@@ -140,6 +168,11 @@ fn build_router(state: ProxyState) -> Router {
 /// 用 std 的 TcpListener 先绑定拿到端口，再交给 tokio，
 /// 这样在 Tauri 的 setup 里调用时不需要 block_on（避免自己等自己）。
 pub fn start() -> u16 {
+    if let Some(s) = STATE.get() {
+        return s.port;
+    }
+    let _guard = START_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // 抢到锁之后再确认一次：可能有别的线程刚刚启好
     if let Some(s) = STATE.get() {
         return s.port;
     }

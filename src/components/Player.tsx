@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { guardSeek, getAudio } from '../lib/audio';
+import { audioSupported, guardSeek, getAudio } from '../lib/audio';
 import { fmtTime } from '../lib/format';
 import type { Track } from '../lib/types';
 import { useLibrary } from '../store/library';
@@ -54,8 +54,11 @@ export function Player({ onOpenQueue, onOpenNowPlaying }: Props) {
   const ctrl = {
     toggle: () => {
       if (joined) {
+        // 以房间状态为准：本地 p.playing 可能还没跟上服务器广播，
+        // 用它取反会出现"点一下没反应、再点还是没反应"。
+        const roomPlaying = room?.state.playing ?? p.playing;
         const pos = Math.round(displayPos);
-        void api.togetherSetPlaying(!p.playing, pos).catch((e) => toast(String(e), 'error'));
+        void api.togetherSetPlaying(!roomPlaying, pos).catch((e) => toast(String(e), 'error'));
         return;
       }
       p.toggle();
@@ -76,11 +79,15 @@ export function Player({ onOpenQueue, onOpenNowPlaying }: Props) {
     },
     seek: (v: number) => {
       if (joined) {
+        // 等服务器回声回来前别纠偏，否则手一松就被拉回原位
+        guardSeek();
         void api.togetherSeek(Math.round(v)).catch((e) => toast(String(e), 'error'));
         return;
       }
       p.seek(v);
       guardSeek(600);
+      // 没有音频后端时连 audio 元素都不要碰（赋值 src 会让 WebProcess 崩）
+      if (!audioSupported()) return;
       const a = getAudio();
       if (a.readyState > 0) a.currentTime = v / 1000;
     },
@@ -104,6 +111,7 @@ export function Player({ onOpenQueue, onOpenNowPlaying }: Props) {
               alt=""
               onClick={onOpenNowPlaying}
               draggable={false}
+              referrerPolicy="no-referrer"
             />
             <div className="player-meta">
               <div className="player-title">{track.title}</div>
@@ -142,7 +150,13 @@ export function Player({ onOpenQueue, onOpenNowPlaying }: Props) {
             <IconPrev size={19} />
           </button>
           <button className="play-btn" onClick={ctrl.toggle} disabled={!track && !joined}>
-            {p.loading ? <span className="spinner" /> : p.playing ? <IconPause size={18} /> : <IconPlay size={18} />}
+            {p.loading ? (
+              <span className="spinner" />
+            ) : (joined ? (room?.state.playing ?? p.playing) : p.playing) ? (
+              <IconPause size={18} />
+            ) : (
+              <IconPlay size={18} />
+            )}
           </button>
           <button className="icon-btn" onClick={ctrl.next}>
             <IconNext size={19} />

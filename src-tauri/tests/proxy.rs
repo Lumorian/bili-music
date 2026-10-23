@@ -23,3 +23,27 @@ async fn proxy_registers_token_and_serves_health() {
     let bad = reqwest::get(format!("http://127.0.0.1:{port}/stream/nope")).await.unwrap();
     assert_eq!(bad.status(), 404);
 }
+
+/// Windows 的 WebView2 会跟着 Chromium 对「页面 → 127.0.0.1」的请求套
+/// Private Network Access 规则，所以本地代理必须答预检，否则音频一播就 error。
+#[tokio::test]
+async fn proxy_answers_cors_preflight() {
+    let port = proxy::start();
+    assert!(port > 0);
+
+    let resp = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, format!("http://127.0.0.1:{port}/stream/any-token"))
+        .header("Origin", "http://tauri.localhost")
+        .header("Access-Control-Request-Method", "GET")
+        .header("Access-Control-Request-Headers", "range")
+        .header("Access-Control-Request-Private-Network", "true")
+        .send()
+        .await
+        .expect("预检请求失败");
+
+    assert_eq!(resp.status(), 204, "预检应返回 204");
+    let headers = resp.headers();
+    assert_eq!(headers.get("access-control-allow-origin").unwrap(), "*");
+    assert_eq!(headers.get("access-control-allow-private-network").unwrap(), "true");
+    assert!(headers.get("access-control-allow-methods").unwrap().to_str().unwrap().contains("GET"));
+}

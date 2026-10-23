@@ -138,9 +138,29 @@ pub fn spawn_host_loop(
     topic: String,
     inbox: UnboundedReceiver<Vec<u8>>,
 ) -> HostLoop {
+    // 没有关闭信号：循环跑到进程结束（测试与长期托管用这个）。
+    // 注意 sender 必须活着，否则 watch::changed() 立刻返回 Err、循环当场退出。
+    let (never_tx, never_rx) = tokio::sync::watch::channel(false);
+    std::mem::forget(never_tx);
+    spawn_host_loop_controlled(room, conn, topic, inbox, never_rx)
+}
+
+/// 同 `spawn_host_loop`，但可以通过 `close_rx` 主动停掉。
+/// 房主"退出房间"时必须调这个：否则房主状态机还活着，
+/// 会继续应答公共 topic 上的消息，房间看着像没散。
+pub fn spawn_host_loop_controlled(
+    room: Room,
+    conn: Arc<MqttConn>,
+    topic: String,
+    inbox: UnboundedReceiver<Vec<u8>>,
+    mut close_rx: tokio::sync::watch::Receiver<bool>,
+) -> HostLoop {
     let host_id = room.host_id.clone();
     let mut room = room;
     let mut room_rx = room.tx.subscribe();
+    // 订阅之后立刻推一次全量房间：房主自己的 UI 也要能看到"我在房间里"，
+    // 否则要等第一个成员进来、或者房主点了一下按钮才会有成员列表。
+    room.broadcast_room();
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<(String, ClientMsg)>();
     let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel::<ServerMsg>();
     let mut inbox = inbox;
@@ -207,14 +227,23 @@ pub fn spawn_host_loop(
 
                 // ③ 房间状态变化：广播到公共主题
                 Ok(server_msg) = room_rx.recv() => {
-                    // Kicked 只发给被踢的人
-                    if let ServerMsg::Kicked { .. } = &server_msg {
-                        let _ = out_for_task.send(server_msg);
+                    // Kicked 只发给被踢的那个人。
+                    // 公共 topic 上所有人都会收到广播，所以这里必须走 Direct，
+                    // 否则房主一脚把人踢了，自己也会跟着掉线。
+                    if let ServerMsg::Kicked { member_id, .. } = &server_msg {
+                        let direct = Envelope::Direct {
+                            to: member_id.clone(),
+                            msg: server_msg.clone(),
+                        };
+                        conn_task.publish(&topic_task, &encode(&direct));
                         continue;
                     }
                     conn_task.publish(&topic_task, &encode(&Envelope::Server { msg: server_msg.clone() }));
                     let _ = out_for_task.send(server_msg);
                 }
+
+                // ④ 房主退出房间
+                _ = close_rx.changed() => break,
 
                 else => break,
             }
@@ -230,6 +259,11 @@ pub fn client_envelope(from: &str, msg: ClientMsg) -> Vec<u8> {
         from: from.to_string(),
         msg,
     })
+}
+
+/// 成员退出时发的信封（房主据此把成员摘掉）
+pub fn leave_envelope(from: &str) -> Vec<u8> {
+    client_envelope(from, ClientMsg::Leave)
 }
 
 /// 房主离开时通知房间清空
@@ -290,7 +324,7 @@ mod tests {
     fn envelope_direct_carries_target() {
         let env = Envelope::Direct {
             to: "m-9".into(),
-            msg: ServerMsg::Kicked { reason: "测试".into() },
+            msg: ServerMsg::Kicked { member_id: "m-9".into(), reason: "测试".into() },
         };
         let back = decode(&encode(&env)).unwrap();
         match back {

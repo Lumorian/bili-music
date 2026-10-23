@@ -109,7 +109,16 @@ pub async fn bili_fav_folders() -> AppResult<Value> {
     if !me.logged_in {
         return Ok(json!([]));
     }
-    let v = bilibili::fav_folders(&me.mid).await?;
+    // nav 被风控时拿不到 mid，退回 cookie 里的 DedeUserID
+    let mid = if me.mid.is_empty() {
+        session::get().cookie_value("DedeUserID").unwrap_or_default()
+    } else {
+        me.mid
+    };
+    if mid.is_empty() {
+        return Ok(json!([]));
+    }
+    let v = bilibili::fav_folders(&mid).await?;
     Ok(v.pointer("/data/list").cloned().unwrap_or_else(|| json!([])))
 }
 
@@ -156,7 +165,8 @@ pub async fn get_settings() -> AppResult<Value> {
     Ok(json!({
         "togetherServer": s.together_server,
         "nickname": s.nickname,
-        "bilibili": { "name": s.bilibili_name, "avatar": s.bilibili_avatar, "loggedIn": !s.bilibili_cookie.is_empty() && !s.bilibili_name.is_empty() },
+        // 登录态以 cookie 为准：昵称拉不到（风控/网络）不代表没登录
+        "bilibili": { "name": s.bilibili_name, "avatar": s.bilibili_avatar, "loggedIn": s.has_login() },
     }))
 }
 

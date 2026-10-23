@@ -66,7 +66,7 @@ export function QueuePanel({ open, onClose }: Props) {
                 }}
               >
                 <div className="track-index">{i === current ? '▶' : i + 1}</div>
-                <img className="track-cover" src={t.cover} alt="" loading="lazy" />
+                <img className="track-cover" src={t.cover} alt="" loading="lazy" referrerPolicy="no-referrer" />
                 <div className="track-main">
                   <div className="track-title">{t.title}</div>
                   <div className="track-sub">{t.artist}</div>

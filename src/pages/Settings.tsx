@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import type { Settings as SettingsT } from '../lib/types';
 import { toast } from '../components/Toast';
+import { useAccount } from '../store/account';
+import { audioSupported, audioCanPlay } from '../lib/audio';
 
 interface Props {
   onLogin: () => void;
@@ -13,8 +15,11 @@ export function Settings({ onLogin, onReload }: Props) {
   const [server, setServer] = useState('');
   const [nickname, setNickname] = useState('');
   const [info, setInfo] = useState<{ version: string; proxyPort: number; platform: string } | null>(null);
+  const refreshAccount = useAccount((s) => s.refresh);
+  const logout = useAccount((s) => s.logout);
 
   const refresh = () => {
+    void refreshAccount();
     api
       .getSettings()
       .then((s) => {
@@ -61,7 +66,7 @@ export function Settings({ onLogin, onReload }: Props) {
             <button
               className="btn danger"
               onClick={async () => {
-                await api.biliLogout();
+                await logout();
                 toast('已退出 B 站账号');
                 refresh();
               }}
@@ -120,6 +125,13 @@ export function Settings({ onLogin, onReload }: Props) {
         <div style={{ fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.9 }}>
           <div>BiliMusic · 只用来听歌的 B 站客户端</div>
           <div>版本 {info?.version ?? '-'} · {info?.platform ?? '-'} · 音频代理端口 {info?.proxyPort || '-'}</div>
+          <div style={{ color: audioSupported() ? 'var(--ok)' : 'var(--danger)' }}>
+            音频解码后端：{audioSupported() ? '可用' : '缺失（Linux 需装 GStreamer 插件；Windows/Android 说明系统 WebView 异常）'}
+          </div>
+          <div style={{ color: 'var(--text-faint)', fontSize: 11.5 }}>
+            AAC(mp4a)：{audioCanPlay('audio/mp4; codecs="mp4a.40.2"') ? '支持' : '不支持'} · Opus(webm)：
+            {audioCanPlay('audio/webm; codecs="opus"') ? '支持' : '不支持'}
+          </div>
           <div style={{ marginTop: 10, color: 'var(--text-faint)' }}>
             本应用只取视频的音频轨道，不加载任何画面，流量和内存都只有原视频的零头。
           </div>

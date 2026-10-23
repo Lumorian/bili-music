@@ -280,7 +280,7 @@ export function Together({ onGoSearch }: { onGoSearch: () => void }) {
                   return (
                     <div key={m.id} className={`member ${m.is_host ? 'host' : ''}`}>
                       {m.avatar ? (
-                        <img className="member-avatar" src={m.avatar} alt="" />
+                        <img className="member-avatar" src={m.avatar} alt="" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="member-avatar">{m.name.slice(0, 1)}</div>
                       )}
@@ -290,14 +290,29 @@ export function Together({ onGoSearch }: { onGoSearch: () => void }) {
                       )}
                       {m.is_host && <IconCrown size={11} className="" />}
                       {m.id !== t.selfId && isHost && (
-                        <button
-                          className="icon-btn"
-                          style={{ width: 18, height: 18 }}
-                          title="移出房间"
-                          onClick={() => api.togetherKick(m.id).catch((e) => toast(String(e), 'error'))}
-                        >
-                          <IconX size={12} />
-                        </button>
+                        <>
+                          <button
+                            className="icon-btn"
+                            style={{ width: 18, height: 18 }}
+                            title="把房主交给他"
+                            onClick={() =>
+                              api
+                                .togetherTransferHost(m.id)
+                                .then(() => toast(`已把房主交给 ${m.name}`))
+                                .catch((e) => toast(String(e), 'error'))
+                            }
+                          >
+                            <IconCrown size={11} />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            style={{ width: 18, height: 18 }}
+                            title="移出房间"
+                            onClick={() => api.togetherKick(m.id).catch((e) => toast(String(e), 'error'))}
+                          >
+                            <IconX size={12} />
+                          </button>
+                        </>
                       )}
                       <div className="member-progress">
                         <i style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
@@ -335,7 +350,7 @@ export function Together({ onGoSearch }: { onGoSearch: () => void }) {
                     }
                   >
                     <div className="track-index">{i === room.state.index ? '▶' : i + 1}</div>
-                    <img className="track-cover" src={tr.cover} alt="" loading="lazy" />
+                    <img className="track-cover" src={tr.cover} alt="" loading="lazy" referrerPolicy="no-referrer" />
                     <div className="track-main">
                       <div className="track-title">{tr.title}</div>
                       <div className="track-sub">{tr.artist}</div>

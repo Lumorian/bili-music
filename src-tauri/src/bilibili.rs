@@ -29,18 +29,102 @@ struct WbiCache {
 
 static WBI: Mutex<Option<WbiCache>> = Mutex::new(None);
 
-fn cookie_header() -> Option<String> {
+/// BUVID 设备指纹缓存（进程内）
+static DEVICE: Mutex<Option<(String, String)>> = Mutex::new(None);
+/// 首屏会并发打好几个接口，用一个异步锁保证设备指纹只申请一次
+static DEVICE_FETCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 拉一次 buvid3 / buvid4。
+/// B 站现在对没有设备指纹的请求（尤其是 ranking）会直接返回 -352 风控，
+/// 而扫码登录成功后拿到的 cookie 里也不一定带 buvid，所以自己先要一份。
+async fn fetch_device_ids() -> AppResult<(String, String)> {
+    let resp = client()
+        .get("https://api.bilibili.com/x/frontend/finger/spi")
+        .header("Referer", REFERER)
+        .header("Accept", "application/json, text/plain, */*")
+        .send()
+        .await?;
+    let v: Value = serde_json::from_str(&resp.text().await?)?;
+    let b3 = v.pointer("/data/b_3").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let b4 = v.pointer("/data/b_4").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    if b3.is_empty() {
+        return Err(AppError::Message("无法获取 B 站设备指纹".into()));
+    }
+    Ok((b3, b4))
+}
+
+/// 确保手里有 buvid3 / buvid4（内存 → 会话文件 → 重新申请）
+async fn device_ids() -> Option<(String, String)> {
+    if let Ok(guard) = DEVICE.lock() {
+        if let Some(v) = guard.as_ref() {
+            return Some(v.clone());
+        }
+    }
+    // 串行化：首屏并发打好几个接口时，设备指纹只申请一次
+    let _guard = DEVICE_FETCH.lock().await;
+    if let Ok(guard) = DEVICE.lock() {
+        if let Some(v) = guard.as_ref() {
+            return Some(v.clone());
+        }
+    }
+    let saved = session::get();
+    if !saved.buvid3.is_empty() {
+        let v = (saved.buvid3.clone(), saved.buvid4.clone());
+        if let Ok(mut guard) = DEVICE.lock() {
+            *guard = Some(v.clone());
+        }
+        return Some(v);
+    }
+
+    match fetch_device_ids().await {
+        Ok(v) => {
+            let cloned = v.clone();
+            let _ = session::update(|s| {
+                s.buvid3 = cloned.0.clone();
+                s.buvid4 = cloned.1.clone();
+            });
+            if let Ok(mut guard) = DEVICE.lock() {
+                *guard = Some(v.clone());
+            }
+            log::info!("已获取 B 站设备指纹 buvid3={}…", &v.0.chars().take(8).collect::<String>());
+            Some(v)
+        }
+        Err(e) => {
+            log::warn!("获取设备指纹失败: {e}");
+            None
+        }
+    }
+}
+
+/// 组装请求用的 Cookie：登录态 + 设备指纹
+async fn cookie_header() -> Option<String> {
     let s = session::get();
-    if s.bilibili_cookie.trim().is_empty() {
+    let mut parts: Vec<String> = Vec::new();
+    if !s.bilibili_cookie.trim().is_empty() {
+        parts.push(s.bilibili_cookie.trim().to_string());
+    }
+    if let Some((b3, b4)) = device_ids().await {
+        if !s.bilibili_cookie.contains("buvid3=") {
+            parts.push(format!("buvid3={b3}"));
+        }
+        if !b4.is_empty() && !s.bilibili_cookie.contains("buvid4=") {
+            parts.push(format!("buvid4={b4}"));
+        }
+    }
+    if parts.is_empty() {
         None
     } else {
-        Some(s.bilibili_cookie)
+        Some(parts.join("; "))
     }
 }
 
 async fn get_json(url: &str) -> AppResult<Value> {
-    let mut req = client().get(url).header("Referer", REFERER).header("Origin", "https://www.bilibili.com");
-    if let Some(c) = cookie_header() {
+    let mut req = client()
+        .get(url)
+        .header("Referer", REFERER)
+        .header("Origin", "https://www.bilibili.com")
+        .header("Accept", "application/json, text/plain, */*");
+    if let Some(c) = cookie_header().await {
         req = req.header("Cookie", c);
     }
     let resp = req.send().await?;
@@ -143,30 +227,54 @@ pub fn md5_hex(input: &str) -> String {
 }
 
 async fn wbi_get(path_with_query: &str, params: &[(&str, String)]) -> AppResult<Value> {
-    let qs = signed_query(params).await?;
-    let url = format!("https://api.bilibili.com{path_with_query}?{qs}");
-    for attempt in 0..2 {
+    // -352 是 B 站最烦人的风控码：签名本身没错，多数时候是缺设备指纹、
+    // 或者同一个 wbi 密钥用得久了。这里按「换签名 → 换密钥 → 换设备指纹 → 退避」
+    // 逐步升级，最多试 4 轮，尽量不让用户看见报错。
+    let mut last_code = -1;
+    let mut last_msg = String::new();
+    for attempt in 0..4u32 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(400 * u64::from(attempt))).await;
+        }
+        let qs = signed_query(params).await?;
+        let url = format!("https://api.bilibili.com{path_with_query}?{qs}");
         let v = get_json(&url).await?;
         let code = code_of(&v);
         if code == 0 {
             return Ok(v);
         }
-        // -352 风控 / -403 签名失效：刷新密钥重试一次
-        if (code == -352 || code == -403) && attempt == 0 {
-            if let Ok(mut g) = WBI.lock() {
-                *g = None;
+        last_code = code;
+        last_msg = msg_of(&v);
+        match code {
+            // 签名失效：丢掉缓存的 mixin key
+            -403 => {
+                if let Ok(mut g) = WBI.lock() {
+                    *g = None;
+                }
             }
-            let qs = signed_query(params).await?;
-            let retry_url = format!("https://api.bilibili.com{path_with_query}?{qs}");
-            let v2 = get_json(&retry_url).await?;
-            if code_of(&v2) == 0 {
-                return Ok(v2);
+            // 风控：先换密钥，再换设备指纹
+            -352 => {
+                if let Ok(mut g) = WBI.lock() {
+                    *g = None;
+                }
+                if attempt >= 1 {
+                    if let Ok(mut g) = DEVICE.lock() {
+                        *g = None;
+                    }
+                    let _ = session::update(|s| {
+                        s.buvid3.clear();
+                        s.buvid4.clear();
+                    });
+                    let _ = device_ids().await;
+                }
             }
-            return Err(AppError::Message(format!("B 站接口被风控({}): {}", code_of(&v2), msg_of(&v2))));
+            _ => {
+                return Err(AppError::Message(format!("B 站接口错误({code}): {last_msg}")));
+            }
         }
-        return Err(AppError::Message(format!("B 站接口错误({code}): {}", msg_of(&v))));
+        log::warn!("B 站接口 {path_with_query} 返回 {code}（第 {} 次尝试），准备重试", attempt + 1);
     }
-    Err(AppError::Message("B 站接口重试失败".into()))
+    Err(AppError::Message(format!("B 站接口被风控({last_code}): {last_msg}")))
 }
 
 fn cover(url: &str) -> String {
@@ -332,8 +440,27 @@ pub async fn search(keyword: &str, page: u32) -> AppResult<Page<Track>> {
     Ok(Page { has_more: page < pages, items, page, total: Some(num_results) })
 }
 
-/// 分区排行（rid=3 是音乐区），电台/音乐合集的富矿
+/// 分区排行（rid=3 是音乐区），电台/音乐合集的富矿。
+/// ranking/v2 是最容易被 -352 风控的一个接口，实在拿不到就退回老的
+/// /x/web-interface/ranking/region（数据量少一点，但几乎不风控）。
 pub async fn ranking(rid: u32, page: u32) -> AppResult<Page<Track>> {
+    if page > 1 {
+        // 老接口没有分页，翻页时继续用 v2
+        return ranking_v2(rid, page).await;
+    }
+    match ranking_v2(rid, page).await {
+        Ok(v) => Ok(v),
+        Err(e) => match ranking_region(rid).await {
+            Ok(v) if !v.items.is_empty() => {
+                log::warn!("ranking/v2 失败（{e}），已退回 ranking/region");
+                Ok(v)
+            }
+            _ => Err(e),
+        },
+    }
+}
+
+async fn ranking_v2(rid: u32, page: u32) -> AppResult<Page<Track>> {
     let v = wbi_get(
         "/x/web-interface/ranking/v2",
         &[("rid", rid.to_string()), ("type", "all".to_string()), ("ps", "30".to_string()), ("pn", page.to_string())],
@@ -358,6 +485,34 @@ pub async fn ranking(rid: u32, page: u32) -> AppResult<Page<Track>> {
         })
         .collect();
     Ok(Page { has_more: page < 4, items, page, total: None })
+}
+
+/// 备用排行接口：字段风格老一些，但风控宽松
+async fn ranking_region(rid: u32) -> AppResult<Page<Track>> {
+    let url = format!("https://api.bilibili.com/x/web-interface/ranking/region?rid={rid}&day=7");
+    let v = get_json(&url).await?;
+    if code_of(&v) != 0 {
+        return Err(AppError::Message(format!("排行榜获取失败({}): {}", code_of(&v), msg_of(&v))));
+    }
+    let list = v.get("data").and_then(|l| l.as_array()).cloned().unwrap_or_default();
+    let items: Vec<Track> = list
+        .iter()
+        .filter_map(|item| {
+            let bvid = item.get("bvid").and_then(|x| x.as_str())?.to_string();
+            Some(Track {
+                source: "bilibili".into(),
+                id: bvid,
+                title: strip_em(item.get("title").and_then(|x| x.as_str()).unwrap_or("未命名")),
+                artist: item.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                cover: cover(item.get("pic").and_then(|x| x.as_str()).unwrap_or("")),
+                duration_ms: parse_duration(item.get("duration").and_then(|x| x.as_str()).unwrap_or("0:00")),
+                extra: None,
+                album: None,
+                subtitle: item.get("play").and_then(|x| x.as_u64()).map(play_count),
+            })
+        })
+        .collect();
+    Ok(Page { has_more: false, items, page: 1, total: None })
 }
 
 /// 相关推荐：用来做"自动接歌"，听完一首自动找下一首
@@ -557,21 +712,73 @@ pub async fn resolve_audio(bvid: &str, cid: u64, preferred_qn: Option<u64>) -> A
     Ok(ResolvedAudio { url, backups, mime, duration_ms: dash.duration.saturating_mul(1000) })
 }
 
+/// 当前登录信息。
+/// 关键点：nav 接口在风控/网络异常时会返回非 0，此时不能直接判定"未登录"，
+/// 否则用户明明登录了、收藏夹却一直是空的。这里以 cookie 里的 SESSDATA 为准，
+/// 昵称/头像只是锦上添花。
 pub async fn me() -> UserInfo {
+    let sess = session::get();
+    let has_cookie = sess.has_login();
+
     match get_json("https://api.bilibili.com/x/web-interface/nav").await {
-        Ok(v) if code_of(&v) == 0 => {
+        Ok(v) => {
             let logged = v.pointer("/data/isLogin").and_then(|x| x.as_bool()).unwrap_or(false);
-            if !logged {
+            if logged {
+                let info = UserInfo {
+                    logged_in: true,
+                    name: v.pointer("/data/uname").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    avatar: v.pointer("/data/face").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    mid: v
+                        .pointer("/data/mid")
+                        .and_then(|x| x.as_u64())
+                        .map(|m| m.to_string())
+                        .unwrap_or_default(),
+                };
+                let snapshot = info.clone();
+                let _ = session::update(|s| {
+                    s.bilibili_name = snapshot.name.clone();
+                    s.bilibili_avatar = snapshot.avatar.clone();
+                });
+                return info;
+            }
+            // 只有 nav 明确回 -101（账号未登录）才说明 cookie 真过期了，可以清。
+            // 其它非 0 码（-352 风控、-500 服务异常等）不能当"未登录"处理，
+            // 否则用户会被莫名其妙踢下线。
+            let code = code_of(&v);
+            if has_cookie && code == -101 {
+                log::warn!("B 站登录态已失效（-101），清除本地 cookie");
+                let _ = session::update(|s| {
+                    s.bilibili_cookie.clear();
+                    s.bilibili_name.clear();
+                    s.bilibili_avatar.clear();
+                });
                 return UserInfo::anonymous();
             }
-            UserInfo {
-                logged_in: true,
-                name: v.pointer("/data/uname").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                avatar: v.pointer("/data/face").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                mid: v.pointer("/data/mid").and_then(|x| x.as_u64()).map(|m| m.to_string()).unwrap_or_default(),
+            if has_cookie {
+                log::warn!("nav 返回 {code}，按本地 cookie 认为已登录");
+                return UserInfo {
+                    logged_in: true,
+                    name: sess.bilibili_name.clone(),
+                    avatar: sess.bilibili_avatar.clone(),
+                    mid: sess.cookie_value("DedeUserID").unwrap_or_default(),
+                };
+            }
+            UserInfo::anonymous()
+        }
+        Err(e) => {
+            // 网络 / 风控失败：按本地 cookie 判断，至少让收藏夹功能可用
+            if has_cookie {
+                log::warn!("nav 接口异常（{e}），按本地 cookie 认为已登录");
+                UserInfo {
+                    logged_in: true,
+                    name: sess.bilibili_name.clone(),
+                    avatar: sess.bilibili_avatar.clone(),
+                    mid: sess.cookie_value("DedeUserID").unwrap_or_default(),
+                }
+            } else {
+                UserInfo::anonymous()
             }
         }
-        _ => UserInfo::anonymous(),
     }
 }
 
@@ -618,7 +825,11 @@ pub async fn qr_poll(key: &str) -> AppResult<(i64, String)> {
     if code == 0 {
         let incoming = cookies.join("; ");
         let existing = session::get().bilibili_cookie;
-        let merged = session::merge_cookie(&existing, &incoming, &["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"]);
+        let merged = session::merge_cookie(
+            &existing,
+            &incoming,
+            &["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4"],
+        );
         session::update(|s| s.bilibili_cookie = merged)?;
         if let Ok(cookie_url) = v.pointer("/data/url").and_then(|u| u.as_str()).map(|s| s.to_string()).ok_or(()) {
             // 兜底：从跳转地址里再抓一遍关键 cookie

@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- B 站图床（i0.hdslb.com）会校验 Referer：带着 http://tauri.localhost 这类
+         非 bilibili 的 Referer 会直接 403。Windows 的 WebView2 页面源是 http://，
+         图片请求会带 Referer（Linux 的 tauri:// 不发），所以只有 Windows 上封面全挂。
+         全局 no-referrer 让图片请求干脆不发这个头。 -->
+    <meta name="referrer" content="no-referrer" />
+    <!-- 内联一个极小的图标：桌面端用不到（窗口图标由 tauri.conf 决定），
+         但浏览器里调试时少了它会一直报 404 -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%239b5cff'/%3E%3Cpath d='M13 21.5V11l9 5.25z' fill='%23fff'/%3E%3C/svg%3E"
+    />
     <title>BiliMusic</title>
   </head>
   <body>

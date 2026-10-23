@@ -71,6 +71,9 @@ pub enum ClientMsg {
     Next,
     Prev,
     Chat { text: String },
+    /// 主动退出房间。云模式没有 socket 断开事件，不显式说一声，
+    /// 房主那边的成员列表会一直挂着"幽灵成员"。
+    Leave,
     TransferHost { member_id: String },
     Kick { member_id: String },
 }
@@ -82,8 +85,12 @@ pub enum ServerMsg {
     Room(RoomSnapshot),
     State { state: PlaybackState, server_time: u64 },
     Queue { queue: Vec<Track>, index: usize },
+    /// 成员进度（只带成员列表，别把整个队列再发一遍）
+    Members { members: Vec<MemberInfo> },
     Chat { from: String, name: String, text: String, at: u64 },
     Pong { t: u64, server_time: u64 },
-    Kicked { reason: String },
+    /// 被移出房间。必须带 member_id：server / 云房间都是广播模型，
+    //  不带目标的话连房主自己都会被踢下线。
+    Kicked { member_id: String, reason: String },
     Error { message: String },
 }

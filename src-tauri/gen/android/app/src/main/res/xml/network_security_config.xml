@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  release 包里 android:usesCleartextTraffic="false"（见 build.gradle.kts），
+  targetSdk 28+ 时系统默认禁止一切明文 HTTP。
+
+  但本地音频代理就是 http://127.0.0.1:<随机端口>：
+  WebView 走 Chromium 的 NetworkSecurityPolicy，会把 loopback 也一起拦掉，
+  表现是「安卓上一按播放就 error，但开发包（debug 里开了 cleartext）一切正常」。
+
+  这里只对 loopback 放开，公网仍然是强制 HTTPS。
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">::1</domain>
+        <!-- 模拟器里的宿主机；tauri android dev 的 dev server 也走这个 -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

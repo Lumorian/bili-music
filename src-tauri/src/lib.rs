@@ -21,6 +21,41 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
 
+/// 修正 AppImage 里 GStreamer 插件的环境变量。
+///
+/// linuxdeploy 的 gstreamer 插件把 `GST_PLUGIN_SCANNER_1_0` 写到了一个并不存在的
+/// 路径（`usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner`，正确的在
+/// `usr/lib/gstreamer-1.0/`），于是每个 WebProcess 都会刷一屏
+/// "External plugin loader failed" 警告，插件扫描退化成兜底路径。
+/// 这里在 WebKit 起来之前把它指回真实位置；只在确认目标缺失时才改，
+/// 正常安装（deb/rpm/裸二进制）完全不受影响。
+fn fix_gstreamer_env() {
+    let Ok(appdir) = std::env::var("APPDIR") else { return };
+    if appdir.is_empty() {
+        return;
+    }
+    let bundled = std::path::Path::new(&appdir).join("usr/lib/gstreamer-1.0");
+
+    // 1) plugin scanner
+    let scanner = std::env::var("GST_PLUGIN_SCANNER_1_0").unwrap_or_default();
+    if !scanner.is_empty() && !std::path::Path::new(&scanner).exists() {
+        let fixed = bundled.join("gst-plugin-scanner");
+        if fixed.exists() {
+            std::env::set_var("GST_PLUGIN_SCANNER_1_0", &fixed);
+            std::env::set_var("GST_PLUGIN_SCANNER", &fixed);
+            log::info!("已修正 GST_PLUGIN_SCANNER: {}", fixed.display());
+        }
+    }
+
+    // 2) 插件目录：确保至少指向包里那套
+    let sys = std::env::var("GST_PLUGIN_SYSTEM_PATH_1_0").unwrap_or_default();
+    if sys.is_empty() && bundled.exists() {
+        std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &bundled);
+        std::env::set_var("GST_PLUGIN_PATH_1_0", &bundled);
+        log::info!("已设置 GStreamer 插件目录: {}", bundled.display());
+    }
+}
+
 /// 当前时间戳（毫秒）
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -29,10 +64,46 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// 日志插件。
+///
+/// 默认配置是「stdout + 系统日志目录文件」。但日志目录不可写时
+/// （只读的 $HOME、被沙箱限制的容器、某些 Linux 发行版的 /run/user 只读等），
+/// **插件初始化会直接 panic，整个应用起不来**——这不该是"日志写不了"的后果。
+///
+/// 所以这里先自己试建一次目录：能建就带上文件目标，建不了就只往 stdout 打。
+fn log_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    use tauri_plugin_log::{Target, TargetKind};
+
+    let mut targets = vec![Target::new(TargetKind::Stdout)];
+
+    // 优先用应用数据目录下的 logs/，和会话文件放一起，方便用户打包发给我们
+    let dir = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var("HOME").ok().map(|h| std::path::PathBuf::from(h).join(".local/share")))
+        .map(|base| base.join("dev.lumorian.bilimusic").join("logs"));
+
+    if let Some(dir) = dir {
+        if std::fs::create_dir_all(&dir).is_ok() {
+            // 再试写一个探针文件：有些环境目录能建、文件却写不进去
+            let probe = dir.join(".write_probe");
+            if std::fs::write(&probe, b"ok").is_ok() {
+                let _ = std::fs::remove_file(&probe);
+                targets.push(Target::new(TargetKind::Folder { path: dir, file_name: None }));
+            } else {
+                log::warn!("日志目录不可写，只输出到 stdout");
+            }
+        }
+    }
+
+    tauri_plugin_log::Builder::new().targets(targets).build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    fix_gstreamer_env();
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(log_plugin())
         .setup(|app| {
             // 数据目录：会话、设置都放这里
             let dir = app
